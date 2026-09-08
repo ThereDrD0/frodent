@@ -134,3 +134,4 @@ async function main() {
 
 try { await main(); }
 catch (error) { if (!stopping) console.error(`Ошибка запуска: ${error.message}`); await shutdown(stopping ? process.exitCode : 1); }
+finally { if (stopping && runtime) await rm(runtime, { recursive: true, force: true }); }
