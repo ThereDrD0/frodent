@@ -56,7 +56,7 @@ svg { display: block; }
 .object.small { font-size: 13px; color: var(--on-surface-variant); }
 .object .text-content { white-space: pre-wrap; overflow-wrap: anywhere; width: 100%; min-height: 100%; outline: none; }
 .text-content:empty:before { content: 'Ваша мысль…'; opacity: .5; pointer-events: none; }
-.text-content[contenteditable=true] { user-select: text; cursor: text; touch-action: auto; }
+.text-content[contenteditable="plaintext-only"] { user-select: text; cursor: text; touch-action: auto; }
 .object[data-type=shape] { border: 2px solid var(--primary); border-radius: 12px; background: color-mix(in srgb, var(--primary-container) 30%, transparent); }
 .object[data-type=shape][data-color=blue] { border-color: var(--tertiary); background: color-mix(in srgb, var(--tertiary-container) 30%, transparent); }
 .object[data-type=shape][data-color=neutral] { border-color: var(--secondary); background: color-mix(in srgb, var(--secondary-container) 30%, transparent); }

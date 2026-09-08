@@ -24,6 +24,10 @@ try {
   await page.locator('[data-action="menu"]').click(); await page.locator('[data-action="theme"]').click();
   await page.locator('button[data-tool="sticky"]').click(); await page.mouse.click(550, 730);
   await page.locator('[contenteditable="plaintext-only"]').fill('Новая мысль');
+  await page.locator('[contenteditable="plaintext-only"]').press('End');
+  await page.locator('[contenteditable="plaintext-only"]').pressSequentially(' vnhtpr');
+  assert.equal(await page.locator('[contenteditable="plaintext-only"]').textContent(), 'Новая мысль vnhtpr');
+  await page.locator('[contenteditable="plaintext-only"]').fill('Новая мысль');
   await page.locator('#board-title').click(); await saved(page);
   assert.equal(await page.getByText('Новая мысль', { exact: true }).count(), 1);
   await page.reload(); await saved(page);
@@ -79,6 +83,7 @@ try {
   await object(page, 'landscape').click();
   const imageBefore = await object(page, 'landscape').evaluate(el => parseFloat(el.style.width));
   const handle = await object(page, 'landscape').locator('.resize-handle').boundingBox();
+  if (!handle) console.log(await page.evaluate(() => ({ scroll: [document.querySelector('#board').scrollLeft, document.querySelector('#board').scrollTop, scrollX, scrollY], world: document.querySelector('#world').getAttribute('style'), object: document.querySelector('[data-id="landscape"]').outerHTML, box: document.querySelector('[data-id="landscape"]').getBoundingClientRect().toJSON(), style: getComputedStyle(document.querySelector('[data-id="landscape"]')).cssText })));
   await drag(page, { x: handle.x + 7, y: handle.y + 7 }, { x: handle.x + 60, y: handle.y + 35 });
   assert.ok(await object(page, 'landscape').evaluate(el => parseFloat(el.style.width)) > imageBefore);
   await page.locator('[data-action="delete"]').click(); await saved(page);

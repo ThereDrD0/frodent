@@ -232,7 +232,7 @@ function finishGesture(cancel = false) {
 }
 board.addEventListener('pointerdown', event => {
   if (!ready || event.button > 1 || $('#dialog').open) return;
-  if (event.target.closest('[contenteditable=true]') && !space) return;
+  if (event.target.isContentEditable && !space) return;
   finishEdit(); pointers.set(event.pointerId, { x: event.clientX, y: event.clientY }); board.setPointerCapture(event.pointerId);
   if (pointers.size === 2) {
     finishGesture(true); const [a, b] = [...pointers.values()];
@@ -453,7 +453,7 @@ $('#board-title').addEventListener('input', () => { const title = $('#board-titl
 $('#board-title').addEventListener('blur', () => { if (!$('#board-title').value.trim()) { $('#board-title').value = 'Без названия'; enqueue(() => writeMeta('title', 'Без названия')); } });
 document.addEventListener('keydown', event => {
   if (event.key === 'Escape') { finishEdit(); setTool('select'); select(null); $('#board-menu').hidden = true; }
-  if ($('#dialog').open || event.target.closest('input,textarea,[contenteditable=true]')) return;
+  if ($('#dialog').open || event.target.closest('input,textarea') || event.target.isContentEditable) return;
   const key = event.key.toLowerCase();
   if ((event.ctrlKey || event.metaKey) && key === 'z') { event.preventDefault(); undo(event.shiftKey); return; }
   if (event.ctrlKey || event.metaKey || event.altKey) return;
@@ -464,8 +464,15 @@ document.addEventListener('keydown', event => {
   if (['delete', 'backspace'].includes(key) && current()) { event.preventDefault(); change({ deleted: true }); }
   if (key === 'enter' && current()) { event.preventDefault(); void activate(selected); }
   if (event.target.closest('[data-id]') && !current()) select(event.target.closest('[data-id]').dataset.id);
-  if (current() && event.key.startsWith('Arrow')) { event.preventDefault(); const distance = event.shiftKey ? 10 : 1; change({ x: current().x + (event.key === 'ArrowRight' ? distance : event.key === 'ArrowLeft' ? -distance : 0), y: current().y + (event.key === 'ArrowDown' ? distance : event.key === 'ArrowUp' ? -distance : 0) }); }
+  if (current() && event.key.startsWith('Arrow')) {
+    event.preventDefault(); const distance = event.shiftKey ? 10 : 1;
+    const dx = event.key === 'ArrowRight' ? distance : event.key === 'ArrowLeft' ? -distance : 0;
+    const dy = event.key === 'ArrowDown' ? distance : event.key === 'ArrowUp' ? -distance : 0;
+    if (event.target.matches('[data-resize]')) change({ w: Math.max(80, current().w + dx), h: Math.max(50, current().h + dy) });
+    else change({ x: current().x + dx, y: current().y + dy });
+  }
 });
+board.addEventListener('focusin', event => { const id = event.target.closest('[data-id]')?.dataset.id; if (id && !editing) select(id); });
 document.addEventListener('keyup', event => { if (event.code === 'Space') { space = false; board.style.cursor = ''; } });
 window.addEventListener('blur', () => { space = false; board.style.cursor = ''; finishGesture(true); });
 window.addEventListener('resize', () => { drawPeers(); });
