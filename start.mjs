@@ -127,9 +127,9 @@ async function main() {
     await ready(server, backendPort, 'Бэкенд');
     console.log(`Бэкенд: http://127.0.0.1:${backendPort}`);
   }
-  const frontend = launch(process.execPath, [join(root, 'scripts/serve.mjs')], { cwd: root, env: { ...process.env, PORT: String(frontendPort) } }, 'Фронтенд');
+  const frontend = launch(process.execPath, [join(root, 'scripts/serve.mjs')], { cwd: root, env: { ...process.env, PORT: String(frontendPort), BACKEND_PORT: String(backendPort || process.env.BACKEND_PORT || 5555) } }, 'Фронтенд');
   await ready(frontend, frontendPort, 'Фронтенд');
-  console.log(`Откройте http://127.0.0.1:${frontendPort}\nЗаметки пока хранятся в браузере: запуск бэкенда сам по себе не подключает API.\nОстановка обоих серверов — Ctrl+C.`);
+  console.log(`Откройте http://127.0.0.1:${frontendPort}\nДоска сохраняется в браузере; вход и снимки C++ API — через «Совместная работа». Синхронизация между устройствами требует доработки бэкенда.\nОстановка обоих серверов — Ctrl+C.`);
 }
 
 try { await main(); }
