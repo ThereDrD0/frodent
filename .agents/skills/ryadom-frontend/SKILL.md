@@ -1,37 +1,44 @@
 ---
 name: ryadom-frontend
-description: Maintain the offline Ryadom notes frontend, Material 3 styling, browser persistence and Markdown behavior in this repository. Use for frontend changes and integration planning; do not modify the sibling C++ backend.
+description: Maintain the minimal Ryadom board frontend, IndexedDB attachments, local tab collaboration and existing C++ snapshot integration. Use for board UI and integration planning in this repository; do not modify the sibling backend.
 ---
 
-# Ryadom frontend
+# Ryadom board frontend
 
-## Scope and architecture
+## Scope
 
-The existing directory is spelled `frondent`; preserve it. It has an independent Git repository on `master`. Keep English implementation notes here and Russian product copy/commit descriptions. The delivery requires at least 125 non-empty microcommits; prefer meaningful component or behavior boundaries. No remotes, deployment, downloads or system changes are authorized.
+The current product is a minimal Miro-like board, superseding the old notes editor. Keep the existing directory spelling `frondent`, local `master` history, Russian Conventional Commits and English maintenance notes. The user's minimum 125 non-empty commits has already been met across the project; keep committing subsequent meaningful changes. Do not download tools, use cloud design services, deploy, push, install packages or modify the sibling C++ source.
 
-There are no runtime or build dependencies. `npm start` runs a loopback-only Node static server on port 4173. `index.html` contains the semantic shell; `src/app.js` binds interactions, `src/store.js` validates and selects notes, `src/markdown.js` safely renders the supported subset, `src/seed.js` contains explicitly local editable examples, and `src/icons.js` owns original SVG icons.
+The previous notes localStorage key `ryadom.notes.v1` belongs to the user. Never clear or migrate it implicitly. Old UI source is recoverable from Git history.
 
-Read [design decisions](../../../docs/DESIGN.md) for visual changes and [backend handoff](../../../docs/BACKEND_HANDOFF.md) before integration work. These relative links resolve from this skill directory to repository documentation.
+## Architecture
 
-## Behavioral invariants
+No runtime or build dependencies. `index.html` owns the small accessible shell; `src/board.css` styles the canvas and floating controls; `src/board.js` owns input, rendering, local presence and operation history. `board-model.js` owns object validation and camera math. `board-storage.js` owns IndexedDB transactions; `board-files.js` validates attachments and handles downloads. `board-backend.js` uses the actual C++ email/password login and note snapshot endpoints.
 
-- The current product is local, not a connected multiuser client. Do not invent collaborators or label local writes as server synchronization. Sharing currently offers Markdown export and explains the limitation.
-- Persist every input synchronously. Do not let filtering, switching modes, changing notes or navigation lose the last edit. Never overwrite corrupt stored data with seeds. Empty arrays are valid persisted collections.
-- Another tab's storage event blocks writes until reload; preserve the current in-memory draft for export. This is a conservative safeguard, not a multiuser conflict-resolution protocol.
-- Soft deletion is reversible. The C++ DELETE endpoint is permanent and must not be wired to this action. Favorites are per-user local state and the sidebar shows at most five.
-- Render untrusted content through `renderMarkdown`/`escapeHTML`. Raw HTML, remote images and executable URLs are unsupported. Preserve literal fenced and inline code. Checkbox source line indices must remain correct.
-- Theme persistence failure must not prevent editing. Storage failure must never display successful saving; retain the draft and offer export.
+Read [design](../../../docs/DESIGN.md) for visual work and [backend contract](../../../docs/BACKEND_BOARD.md) for integration. Prefer adding actions to the existing contextual controls/dialog, not more persistent panels.
 
-## Design maintenance
+## State and concurrency
 
-Use semantic variables in `src/tokens.css`. They were generated using `matugen --dry-run -j hex color hex '#4EF5E7'`; `docs/palette.json` records the actual output. Never run matugen without `--dry-run` in this task context. Preserve both themes, responsive drawer, keyboard focus, native dialog and reduced-motion behavior. Local Qt Material source references are listed in the design document; no network is needed.
+The database is `ryadom-board-v1`, with objects/files/meta stores. Objects are committed with compare-and-swap revisions. Never write the entire local board array over another tab's state. BroadcastChannel provides ephemeral previews/presence and notifications; IndexedDB is the durable authority. Refresh from IndexedDB after tab visibility changes. Deleted objects remain tombstones for undo; attachment Blobs are retained for restoration.
 
-## Unified local launcher
+Multiple tabs are a local demo, not multiple remote users. Do not invent participants or claim network synchronization. The current C++ API supports immutable snapshots only. Never background-PATCH the whole board. Remote operations, server file transfer, actual membership and realtime transport require the backend work in the linked handoff.
 
-The user subsequently authorized a single launcher for both servers. `start.mjs` (or `npm run start:all`) starts the existing sibling binary and the frontend; `--frontend` skips all backend prerequisites. It does not integrate the frontend with the API. Read `docs/STARTUP.md` at repository root before changing it.
+Text editing uses plaintext-only contenteditable and textContent. Keep cursor/IME behavior intact. Preserve concurrent text conflicts as separate objects and keep a session draft until persistence succeeds. Own undo revisions must not be misidentified as remote edits; stale undo must never replace a remote revision.
 
-The backend main reads `../config.json` relative to cwd. Preserve that contract by generating a private ignored `.runtime/session-*/config.json` and launching from its child `work/` directory. Bind only to loopback, keep runtime logs/uploads in that directory, disable daemon/relaunch, and stop only child processes owned by the launcher. Never install dependencies, fetch CMake content, start system services or create database schemas automatically. The current binary has missing shared libraries; fail with an actionable message. `scripts/launcher-test.mjs` validates orchestration with isolated fixtures, not a real database.
+## Files and exports
 
-## Validation workflow
+Drag/drop, file picker and clipboard share one insertion path. Raster images render through local Blob URLs; documents render safe metadata cards and download without execution. SVG/HTML uploads are unsupported. Original static SVG assets in assets/ are trusted project files, not user-provided SVGs.
 
-Run `npm test` for renderer, persistence and contrast checks. For interactions, start the local server and run `scripts/browser-test.mjs` with `PLAYWRIGHT_MODULE` and `BROWSER_PATH` pointing to already installed tools. The script must not download a browser or use a user's live profile. Only localhost requests are permitted. Inspect screenshots in ignored `test-results/`, especially at narrow widths and in dark mode. Record actual results and limits in `docs/TESTING.md`; do not claim browser tests passed if the browser did not launch.
+Blobs and object references commit in one transaction. Retain unsaved file data in memory so an export can recover a clipboard image after storage failure. Report failure truthfully. Local backup exports include attachments up to 35 MiB total; server snapshots strip blobId and mark missing originals. Import validates inputs before adding anything and creates fresh IDs; never overwrite the current board. Honor 20 MiB/file, ten files/insertion, 1000 visible objects and 20000 text characters/object.
+
+## Material 3 and local launcher
+
+Reuse semantic `tokens.css` from matugen's `#4EF5E7` palette in both themes. Never run matugen without `--dry-run`. Offline Qt Material source references are recorded in DESIGN.md. Keep original vector assets and local fonts; no remote asset requests.
+
+`start.mjs` launches the existing backend and frontend, or just the board with `--frontend`. Its private ignored runtime config preserves the C++ relative config path without touching source files. Keep services loopback-only and stop only owned child processes. Forward the selected BACKEND_PORT to the static server. That server allows only the explicitly implemented login/new-snapshot/read-snapshot API routes; do not proxy arbitrary paths or destinations.
+
+## Validation
+
+Run `npm test` for model, file and contrast checks. Run `scripts/launcher-test.mjs` and `scripts/proxy-test.mjs` for isolated localhost fixtures. Browser checks use preinstalled Playwright and a fresh profile via `scripts/board-test.mjs`; set BOARD_TEST_ORIGIN to an owned test port if the default is already used. Never stop an existing user's server to reuse its port.
+
+Test actual file drop/paste, reload, two-tab drawing and conflicting text, undo/redo, object resize, export/import and API error handling. Inspect desktop/mobile screenshots and both themes. Record exact limits in TESTING.md. Native downloads in headless Vivaldi are not covered by Blob capture. A mocked API pass does not verify the real C++ binary or PostgreSQL.
