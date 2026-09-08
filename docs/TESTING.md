@@ -1,60 +1,65 @@
-# Verification — 2026-09-08
+# Board verification — 2026-09-08
 
-## Environment and scope
+This report supersedes the earlier notes-editor report. The board is the current frontend; old note storage was not modified.
 
-Used preinstalled Node.js v26.8.1, matugen 4.2.0, Playwright 1.63.0-alpha-2026-08-31 from the local npm cache, and `/opt/vivaldi/vivaldi-bin`. No packages were installed, no npm dependency download was attempted, and no system update was performed. The C++ backend and other running applications were not started, stopped or changed.
+## Environment
 
-The test HTTP server listened only on `127.0.0.1:4173`. Sandbox restrictions initially prevented loopback listening and browser subprocess sockets; isolated local execution was allowed by the environment's approval mechanism. Browser tests used new temporary profiles, disabled the Vivaldi shell/GPU for headless compatibility, blocked external DNS, and rejected every non-localhost page request. Existing browser profiles and windows were not used. The test server was stopped after verification.
+Reused preinstalled Node.js 26.8.1, matugen 4.2.0, Playwright 1.63.0-alpha-2026-08-31 from the existing local npm cache and the installed Vivaldi binary in headless Chromium mode. No packages were installed, no system update occurred, no external website or cloud service was used. Source changes are confined to this frontend.
 
-## Passed checks
+Port 4173 was occupied by an existing process, which was left untouched. The owned test server used 127.0.0.1:4187 and was stopped after verification. Browser tests used disposable profiles, disabled background networking/external DNS and rejected non-localhost requests.
 
-`npm test` passes all three test files. Running each directly confirms 12 individual assertions groups (5 Markdown, 5 storage, 2 theme tests):
+## Passed automated checks
 
-- Markdown headings, emphasis, ordered lists, task source line indices and literal code fences.
-- Escaping raw HTML and attribute quotes; rejecting executable link protocols.
-- Unicode word counting.
-- Case-insensitive title/content search, sorting and favorite/trash filtering.
-- Empty stored arrays, independent seed copies, corrupt storage and duplicate IDs.
-- Unique note IDs and default editable state.
-- Five foreground/background pairs in each theme meet at least 4.5:1 contrast. This checks those text pairs, not full WCAG conformance.
+`npm test`: eight model/file test groups and two color test groups:
 
-The browser suite passed with:
+- Seed/new object schema, unique IDs, malformed coordinates and oversized text.
+- Cursor-anchored zoom and limits, fit camera, normalized stroke coordinates.
+- Snapshot format, duplicate IDs and removal of local Blob IDs from server snapshots.
+- Image/document whitelist, active SVG rejection, empty/oversized attachment rejection.
+- Light/dark text contrast for the tested semantic pairs (at least 4.5:1, not a complete accessibility audit).
+
+`node scripts/launcher-test.mjs`: launches two isolated fixture processes from an arbitrary working directory, preserves the original fixture backend config, creates a private loopback-only copy, handles occupied ports without killing their owner, stops owned processes on SIGINT/SIGTERM and cleans temporary configuration. Unexpected child exit and invalid parameters are covered.
+
+`node scripts/proxy-test.mjs`: verifies the actual local proxy against a mock backend: email login, JSON snapshot body, Bearer forwarding, numeric snapshot route, route allowlist, private-file rejection, cross-origin write rejection, CSP and 503 when the upstream is unavailable.
+
+Browser command:
 
 ```sh
 PLAYWRIGHT_MODULE=/home/user/.npm/_npx/9833c18b2d85bc59/node_modules/playwright/index.mjs \
 BROWSER_PATH=/opt/vivaldi/vivaldi-bin \
-BROWSER_CAPTURE_EXPORT=1 \
-node scripts/browser-test.mjs
+BOARD_TEST_ORIGIN=http://127.0.0.1:4187 \
+node scripts/board-test.mjs
 ```
 
-Covered creation, title/content editing, reload persistence, reading/editing modes, task checkbox persistence, Markdown rendering and HTML escaping, formatting insertion, favorites, search/no-results, duplicate, trash/read-only/restore, share dialog/Escape, Ctrl+K, light/dark modes and mobile drawer navigation.
+The full browser suite passed:
 
-Checked horizontal page overflow at 320, 390, 560, 768, 1024 and 1440px. Generated and visually inspected desktop and mobile screenshots in both themes. Long document titles wrap on mobile; the hidden drawer is inert to keyboard navigation.
+- Creation/editing of sticky text, actual sequential typing of tool-shortcut letters without activating tools, reload persistence.
+- Object drag, undo/redo, pen strokes and rectangles.
+- Literal pasted HTML remains text; no script node is created.
+- Actual DataTransfer PNG/PDF drop, ClipboardEvent document paste, image bytes recovered after reload.
+- Two independent tabs see new strokes; conflicting edits to one text preserve both variants.
+- Image resize, reversible deletion, zoom, full backup containing three original file Blobs and non-destructive import.
+- Client login/snapshot workflow against mocked responses matching the existing C++ envelope, Bearer use, token absent from durable browser storage and file references omitted from server snapshots.
+- No page overflow at 320, 390, 768 and 1440px; mobile tools, collaboration explanation and light/dark themes.
+- Zero external page requests and zero page-level JavaScript exceptions during the tested flow.
 
-Additional failure-path checks passed: corrupt storage is not overwritten; another tab's write blocks further writes; simulated quota failure keeps the editable in-memory draft and displays an unsaved state. HTTP checks confirm private files and API paths return 404, POST is rejected with 405, HEAD sends no body, and the static server supplies a restrictive CSP.
+## Visual review
 
-The suite observed zero external page requests and zero JavaScript/console errors in its main interaction page. It does not claim an OS-wide network audit.
+Generated and inspected desktop/mobile screenshots. Fixed selection palette rules that accidentally applied to objects, separated canvas/tool selectors, enabled plaintext typing without shortcut interception, prevented browser-managed canvas scrolling and made resize handles functional. Current reference screenshots are generated in a separate clean browser context:
 
-## Export verification limit
+- `test-results/board-desktop-light.png`
+- `test-results/board-desktop-dark.png`
+- `test-results/board-mobile-light.png`
+- `test-results/board-mobile-dark.png`
 
-The installed headless Vivaldi does not emit Playwright's native `download` event, including with a fresh persistent profile. The default download-event test therefore does not pass in this browser. The explicit capture mode validates the actual generated Blob text, exact `.md` filename and invocation of the anchor's download action, and writes that captured content to `test-results/export.md`. Native download-manager completion remains unverified. A browser emitting standard Playwright download events can run the suite without `BROWSER_CAPTURE_EXPORT`.
+The files are generated artifacts and ignored by Git. SVG source assets are tracked.
 
-## Local artifacts
+## Limits of the evidence
 
-- `test-results/desktop-light.png`
-- `test-results/desktop-dark.png`
-- `test-results/mobile-light.png`
-- `test-results/mobile-dark.png`
-- `test-results/export.md`
+The actual C++ server is still blocked by missing dynamic libraries and an unprepared/unchecked PostgreSQL environment. No real backend account or database was modified. Mock contract and proxy tests do not establish that the real backend works.
 
-These generated test artifacts are deliberately ignored by Git. The original SVG logo, illustration and icon source are tracked.
+Realtime collaboration is implemented only between tabs sharing the same IndexedDB/browser origin. Different users/devices, remote cursors, server attachment upload, authenticated rooms and CRDT/OT text merging remain backend/integration work described in BACKEND_BOARD.md.
 
-## Documentation and repository checks
+The headless Vivaldi download manager does not emit the expected native download event. Tests validate the generated export Blob, original attachment content and re-import of the complete board; native download completion is not claimed. Clipboard tests use browser ClipboardEvent/DataTransfer; support for files copied from an OS file manager depends on what that browser exposes. Touch pinch and screen-reader behavior were not independently automated in this run; desktop pointer behavior and mobile layout were checked.
 
-JavaScript syntax and `git diff --check` pass. The skill has a valid simple YAML header and its relative documentation links resolve. The bundled Python skill validator could not run because PyYAML is not installed; header, naming, scope and references were checked without installing it.
-
-The frontend is its own local repository on `master`, with more than 125 non-empty commits using Conventional Commits and Russian descriptions. There is no remote. System packages and npm packages installed during this work: **none**; there is nothing to uninstall.
-
-## Not covered
-
-No backend integration, remote sessions, simultaneous multiuser editing, real-time synchronization, other browser engines, screen-reader session or exhaustive accessibility audit. These are not represented as completed features. The next-stage backend contract is in `BACKEND_HANDOFF.md`.
+No packages were installed, so nothing requires uninstallation. The local master history has more than the user's required 125 non-empty commits and no remote. Skill metadata and relative documentation links were checked locally; the optional Python validator remains unavailable without PyYAML.
