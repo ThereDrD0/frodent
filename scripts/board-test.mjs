@@ -74,6 +74,7 @@ try {
   assert.equal(await page.getByText('Первый участник', { exact: true }).count(), 1);
   console.log('PASS: tools, pan/drag, undo/redo, text persistence, XSS escaping, PNG/PDF drop, clipboard file, image reload, live drawing between tabs and same-object conflict preservation.');
   await second.close();
+  await page.locator('[data-action="fit"]').click();
   await page.locator('button[data-tool="select"]').click();
   await object(page, 'landscape').click();
   const imageBefore = await object(page, 'landscape').evaluate(el => parseFloat(el.style.width));

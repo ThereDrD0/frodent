@@ -35,7 +35,7 @@ svg { display: block; }
 .mint { background: var(--primary-container); }
 .blue { background: var(--tertiary-container); }
 .neutral { background: var(--secondary-container); }
-#board { position: fixed; inset: 0; overflow: hidden; touch-action: none; outline: none; background-image: radial-gradient(circle, var(--outline-variant) .75px, transparent .9px); background-size: 24px 24px; }
+#board { position: fixed; inset: 0; overflow: clip; touch-action: none; outline: none; background-image: radial-gradient(circle, var(--outline-variant) .75px, transparent .9px); background-size: 24px 24px; }
 #board[data-tool=hand] { cursor: grab; }
 #board[data-tool=pen], #board[data-tool=shape], #board[data-tool=sticky], #board[data-tool=text] { cursor: crosshair; }
 #board.dragging { cursor: grabbing; }

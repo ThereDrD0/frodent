@@ -155,7 +155,7 @@ function beginEdit(id) {
   const session = { id, element, before: structuredClone(object), revision: object.revision, conflicted: false };
   editing = session;
   element.contentEditable = 'plaintext-only'; element.setAttribute('role', 'textbox'); element.setAttribute('aria-label', 'Текст объекта');
-  element.focus();
+  element.focus({ preventScroll: true });
   const range = document.createRange(); range.selectNodeContents(element); window.getSelection().removeAllRanges(); window.getSelection().addRange(range);
   element.addEventListener('input', () => {
     if (element.textContent.length > 20000) { element.textContent = element.textContent.slice(0, 20000); toast('Максимум 20 000 символов в одном объекте.'); }
