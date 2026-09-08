@@ -28,4 +28,12 @@ Use semantic variables in `src/tokens.css`. They were generated using `matugen -
 
 ## Validation
 
+## Unified local launcher
+
+The user subsequently authorized a single launcher for both servers. `start.mjs` (or `npm run start:all`) starts the existing sibling binary and the frontend; `--frontend` skips all backend prerequisites. It does not integrate the frontend with the API. Read `docs/STARTUP.md` at repository root before changing it.
+
+The backend main reads `../config.json` relative to cwd. Preserve that contract by generating a private ignored `.runtime/session-*/config.json` and launching from its child `work/` directory. Bind only to loopback, keep runtime logs/uploads in that directory, disable daemon/relaunch, and stop only child processes owned by the launcher. Never install dependencies, fetch CMake content, start system services or create database schemas automatically. The current binary has missing shared libraries; fail with an actionable message. `scripts/launcher-test.mjs` validates orchestration with isolated fixtures, not a real database.
+
+## Validation workflow
+
 Run `npm test` for renderer, persistence and contrast checks. For interactions, start the local server and run `scripts/browser-test.mjs` with `PLAYWRIGHT_MODULE` and `BROWSER_PATH` pointing to already installed tools. The script must not download a browser or use a user's live profile. Only localhost requests are permitted. Inspect screenshots in ignored `test-results/`, especially at narrow widths and in dark mode. Record actual results and limits in `docs/TESTING.md`; do not claim browser tests passed if the browser did not launch.
