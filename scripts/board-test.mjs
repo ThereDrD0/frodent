@@ -1,0 +1,87 @@
+import assert from 'node:assert/strict';
+import { mkdtemp, mkdir, rm } from 'node:fs/promises';
+const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const profile = await mkdtemp('/tmp/ryadom-board-browser-');
+const context = await chromium.launchPersistentContext(profile, { executablePath: process.env.BROWSER_PATH, headless: true, viewport: { width: 1440, height: 960 }, locale: 'ru-RU', reducedMotion: 'reduce', args: ['--disable-vivaldi', '--disable-gpu', '--disable-background-networking', '--disable-component-update', '--no-first-run', '--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1'] });
+const origin = process.env.BOARD_TEST_ORIGIN || 'http://127.0.0.1:4187';
+const external = [], errors = [];
+await context.route('**/*', route => {
+  if (new URL(route.request().url()).origin !== origin) { external.push(route.request().url()); return route.abort(); }
+  return route.continue();
+});
+context.on('page', page => page.on('pageerror', error => errors.push(error.message)));
+await mkdir('test-results', { recursive: true });
+const page = await context.newPage();
+const saved = p => p.waitForFunction(() => document.querySelector('#save-status')?.textContent === 'Сохранено в браузере');
+const object = (p, id) => p.locator(`.object[data-id="${id}"]`);
+async function drag(p, from, to) { await p.mouse.move(from.x, from.y); await p.mouse.down(); await p.mouse.move(to.x, to.y, { steps: 12 }); await p.mouse.up(); await saved(p); }
+try {
+  await page.goto(origin); await saved(page);
+  assert.equal(await page.locator('#objects .object').count(), 7);
+  await page.screenshot({ path: 'test-results/board-desktop-light.png' });
+  await page.locator('[data-action="menu"]').click(); await page.locator('[data-action="theme"]').click();
+  await page.screenshot({ path: 'test-results/board-desktop-dark.png' });
+  await page.locator('[data-action="menu"]').click(); await page.locator('[data-action="theme"]').click();
+  await page.locator('[data-tool="sticky"]').click(); await page.mouse.click(550, 730);
+  await page.locator('[contenteditable="plaintext-only"]').fill('Новая мысль');
+  await page.locator('#board-title').click(); await saved(page);
+  assert.equal(await page.getByText('Новая мысль', { exact: true }).count(), 1);
+  await page.reload(); await saved(page);
+  assert.equal(await page.getByText('Новая мысль', { exact: true }).count(), 1);
+  const idea = object(page, 'idea'); const box = await idea.boundingBox();
+  const before = await idea.evaluate(el => [el.style.left, el.style.top]);
+  await drag(page, { x: box.x + 40, y: box.y + 40 }, { x: box.x + 95, y: box.y + 68 });
+  assert.notDeepEqual(await idea.evaluate(el => [el.style.left, el.style.top]), before);
+  await page.locator('[data-action="undo"]').click(); await saved(page);
+  assert.deepEqual(await idea.evaluate(el => [el.style.left, el.style.top]), before);
+  await page.locator('[data-action="redo"]').click(); await saved(page);
+  await page.locator('[data-tool="pen"]').click();
+  await drag(page, { x: 720, y: 740 }, { x: 850, y: 785 });
+  assert.equal(await page.locator('#objects [data-type="stroke"]').count(), 2);
+  await page.locator('[data-tool="shape"]').click();
+  await drag(page, { x: 1020, y: 700 }, { x: 1230, y: 810 });
+  assert.equal(await page.locator('#objects [data-type="shape"]').count(), 1);
+  await page.locator('[data-tool="select"]').click();
+  await page.locator('#board').focus();
+  await page.evaluate(() => { const data = new DataTransfer(); data.setData('text/plain', '<script>не исполнять</script>'); document.querySelector('#board').dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true })); });
+  await saved(page);
+  assert.equal(await page.locator('#objects script').count(), 0);
+  assert.ok(await page.getByText('<script>не исполнять</script>', { exact: true }).count());
+  await page.evaluate(async () => {
+    const canvas = document.createElement('canvas'); canvas.width = 64; canvas.height = 48; const c = canvas.getContext('2d'); c.fillStyle = '#4EF5E7'; c.fillRect(0, 0, 64, 48);
+    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+    const data = new DataTransfer(); data.items.add(new File([blob], 'drawing.png', { type: 'image/png' })); data.items.add(new File(['%PDF-1.4\nfixture'], 'document.pdf', { type: 'application/pdf' }));
+    document.querySelector('#board').dispatchEvent(new DragEvent('drop', { dataTransfer: data, clientX: 1010, clientY: 510, bubbles: true, cancelable: true }));
+  });
+  await page.waitForFunction(() => [...document.querySelectorAll('#objects .object')].some(el => el.textContent.includes('document.pdf')));
+  await saved(page);
+  assert.equal(await page.locator('#objects [data-type="file"]').count(), 1);
+  await page.waitForFunction(() => document.querySelector('img[alt="drawing.png"]')?.naturalWidth > 0);
+  await page.reload(); await saved(page);
+  await page.waitForFunction(() => document.querySelector('img[alt="drawing.png"]')?.naturalWidth > 0);
+  await page.evaluate(() => { const data = new DataTransfer(); data.items.add(new File(['plain document'], 'pasted.txt', { type: 'text/plain' })); document.querySelector('#board').dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true })); });
+  await page.getByText('pasted.txt', { exact: true }).waitFor(); await saved(page);
+  const second = await context.newPage(); await second.goto(origin); await saved(second);
+  await second.waitForFunction(() => document.querySelector('#presence').textContent.includes('2'));
+  await page.locator('[data-tool="pen"]').click(); await drag(page, { x: 800, y: 700 }, { x: 910, y: 750 });
+  await second.waitForFunction(() => document.querySelectorAll('#objects [data-type="stroke"]').length === 3);
+  await page.locator('[data-tool="select"]').click();
+  await object(page, 'plan').dblclick(); await object(second, 'plan').dblclick();
+  await page.locator('[contenteditable="plaintext-only"]').fill('Первый участник'); await saved(page);
+  await second.locator('[contenteditable="plaintext-only"]').fill('Второй участник'); await saved(second);
+  await page.locator('#board-title').click(); await second.locator('#board-title').click(); await saved(page); await saved(second);
+  await page.getByText('Второй участник', { exact: true }).waitFor();
+  assert.equal(await page.getByText('Первый участник', { exact: true }).count(), 1);
+  console.log('PASS: tools, pan/drag, undo/redo, text persistence, XSS escaping, PNG/PDF drop, clipboard file, image reload, live drawing between tabs and same-object conflict preservation.');
+  await second.close();
+  for (const width of [320, 390, 768, 1440]) { await page.setViewportSize({ width, height: 900 }); assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true); }
+  await page.setViewportSize({ width: 390, height: 844 }); await page.locator('[data-action="fit"]').click();
+  await page.screenshot({ path: 'test-results/board-mobile-light.png' });
+  await page.locator('[data-action="share"]').click();
+  assert.ok((await page.locator('dialog').textContent()).includes('между устройствами'));
+  await page.keyboard.press('Escape');
+  await page.locator('[data-action="menu"]').click(); await page.locator('[data-action="theme"]').click();
+  await page.screenshot({ path: 'test-results/board-mobile-dark.png' });
+  assert.deepEqual(external, []); assert.deepEqual(errors, []);
+  console.log('PASS: four viewport widths, mobile controls, both themes, honest collaboration dialog, no external requests or page errors.');
+} finally { await context.close(); await rm(profile, { recursive: true, force: true }); }
