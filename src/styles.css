@@ -707,6 +707,10 @@ kbd {
 }
 
 .note-title {
+  display:block;
+  resize:none;
+  field-sizing:content;
+  overflow:hidden;
   border:0;
   width:100%;
   background:transparent;
