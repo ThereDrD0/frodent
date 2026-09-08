@@ -22,7 +22,7 @@ try {
   await page.locator('[data-action="menu"]').click(); await page.locator('[data-action="theme"]').click();
   await page.screenshot({ path: 'test-results/board-desktop-dark.png' });
   await page.locator('[data-action="menu"]').click(); await page.locator('[data-action="theme"]').click();
-  await page.locator('[data-tool="sticky"]').click(); await page.mouse.click(550, 730);
+  await page.locator('button[data-tool="sticky"]').click(); await page.mouse.click(550, 730);
   await page.locator('[contenteditable="plaintext-only"]').fill('Новая мысль');
   await page.locator('#board-title').click(); await saved(page);
   assert.equal(await page.getByText('Новая мысль', { exact: true }).count(), 1);
@@ -35,13 +35,13 @@ try {
   await page.locator('[data-action="undo"]').click(); await saved(page);
   assert.deepEqual(await idea.evaluate(el => [el.style.left, el.style.top]), before);
   await page.locator('[data-action="redo"]').click(); await saved(page);
-  await page.locator('[data-tool="pen"]').click();
+  await page.locator('button[data-tool="pen"]').click();
   await drag(page, { x: 720, y: 740 }, { x: 850, y: 785 });
   assert.equal(await page.locator('#objects [data-type="stroke"]').count(), 2);
-  await page.locator('[data-tool="shape"]').click();
+  await page.locator('button[data-tool="shape"]').click();
   await drag(page, { x: 1020, y: 700 }, { x: 1230, y: 810 });
   assert.equal(await page.locator('#objects [data-type="shape"]').count(), 1);
-  await page.locator('[data-tool="select"]').click();
+  await page.locator('button[data-tool="select"]').click();
   await page.locator('#board').focus();
   await page.evaluate(() => { const data = new DataTransfer(); data.setData('text/plain', '<script>не исполнять</script>'); document.querySelector('#board').dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true })); });
   await saved(page);
@@ -60,12 +60,12 @@ try {
   await page.reload(); await saved(page);
   await page.waitForFunction(() => document.querySelector('img[alt="drawing.png"]')?.naturalWidth > 0);
   await page.evaluate(() => { const data = new DataTransfer(); data.items.add(new File(['plain document'], 'pasted.txt', { type: 'text/plain' })); document.querySelector('#board').dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true })); });
-  await page.getByText('pasted.txt', { exact: true }).waitFor(); await saved(page);
+  await page.getByText('pasted.txt', { exact: true }).waitFor({ state: 'attached' }); await saved(page);
   const second = await context.newPage(); await second.goto(origin); await saved(second);
   await second.waitForFunction(() => document.querySelector('#presence').textContent.includes('2'));
-  await page.locator('[data-tool="pen"]').click(); await drag(page, { x: 800, y: 700 }, { x: 910, y: 750 });
+  await page.locator('button[data-tool="pen"]').click(); await drag(page, { x: 800, y: 700 }, { x: 910, y: 750 });
   await second.waitForFunction(() => document.querySelectorAll('#objects [data-type="stroke"]').length === 3);
-  await page.locator('[data-tool="select"]').click();
+  await page.locator('button[data-tool="select"]').click();
   await object(page, 'plan').dblclick(); await object(second, 'plan').dblclick();
   await page.locator('[contenteditable="plaintext-only"]').fill('Первый участник'); await saved(page);
   await second.locator('[contenteditable="plaintext-only"]').fill('Второй участник'); await saved(second);
@@ -74,7 +74,7 @@ try {
   assert.equal(await page.getByText('Первый участник', { exact: true }).count(), 1);
   console.log('PASS: tools, pan/drag, undo/redo, text persistence, XSS escaping, PNG/PDF drop, clipboard file, image reload, live drawing between tabs and same-object conflict preservation.');
   await second.close();
-  await page.locator('[data-tool="select"]').click();
+  await page.locator('button[data-tool="select"]').click();
   await object(page, 'landscape').click();
   const imageBefore = await object(page, 'landscape').evaluate(el => parseFloat(el.style.width));
   const handle = await object(page, 'landscape').locator('.resize-handle').boundingBox();
@@ -122,4 +122,5 @@ try {
   await page.screenshot({ path: 'test-results/board-mobile-dark.png' });
   assert.deepEqual(external, []); assert.deepEqual(errors, []);
   console.log('PASS: four viewport widths, mobile controls, both themes, honest collaboration dialog, no external requests or page errors.');
-} finally { await context.close(); await rm(profile, { recursive: true, force: true }); }
+} catch (error) { await page.screenshot({ path: 'test-results/board-failure.png' }).catch(() => {}); throw error; }
+finally { await context.close(); await rm(profile, { recursive: true, force: true }); }

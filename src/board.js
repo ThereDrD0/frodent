@@ -48,7 +48,7 @@ function setCamera(next) {
 function fit() { setCamera(fitCamera(active(), innerWidth, innerHeight)); }
 function setTool(next) {
   finishEdit(); tool = next; board.dataset.tool = tool;
-  $$('[data-tool]').forEach(button => { button.classList.toggle('active', button.dataset.tool === tool); button.setAttribute('aria-pressed', String(button.dataset.tool === tool)); });
+  $$('button[data-tool]').forEach(button => { button.classList.toggle('active', button.dataset.tool === tool); button.setAttribute('aria-pressed', String(button.dataset.tool === tool)); });
   const hints = { select: 'Место, где мысли встречаются', hand: 'Потяните полотно, чтобы переместиться', sticky: 'Нажмите на доску, чтобы оставить мысль', text: 'Нажмите на доску, чтобы написать', pen: 'Рисуйте свободно. Пробел — переместить доску', shape: 'Потяните, чтобы нарисовать прямоугольник' };
   $('#tool-hint').textContent = hints[tool];
   if (next !== 'select') select(null);
