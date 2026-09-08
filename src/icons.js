@@ -24,6 +24,7 @@ const paths = {
   download: '<path d="M12 3v12m-5-5 5 5 5-5M4 15v6h16v-6"/>',
   copy: '<rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V3H3v13h5"/>',
   arrow: '<path d="M5 12h14m-6-6 6 6-6 6"/>',
+  check: '<path d="m5 12 4 4L19 6"/>'
 };
 export function icon(name) { return `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.document}</svg>`; }
 export function hydrateIcons(root = document) { root.querySelectorAll('[data-icon]').forEach(el => { el.innerHTML = icon(el.dataset.icon); }); }
