@@ -8,6 +8,8 @@ const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
 const board = $('#board'), world = $('#world');
 const objects = new Map(), elements = new Map(), urls = new Map(), peers = new Map();
+const unsavedFiles = new Map();
+const readBlob = id => unsavedFiles.has(id) ? Promise.resolve(unsavedFiles.get(id)) : readValue('files', id);
 const actor = crypto.randomUUID(), channel = 'BroadcastChannel' in window ? new BroadcastChannel('ryadom-board-v1') : null;
 let camera = { x: 0, y: 0, zoom: 1 }, selected, tool = 'select', color = 'mint', gesture, editing, space = false, ready = false;
 let queue = Promise.resolve(), pending = 0, failure = false, toastTimer, lastBroadcast = 0;
@@ -55,7 +57,7 @@ function select(id) {
   selected = id;
   for (const [key, element] of elements) element.classList.toggle('selected', key === id);
   $('#selection-tools').hidden = !current() || current().deleted || tool !== 'select';
-  $$('[data-color]').forEach(button => { button.setAttribute('aria-pressed', String(current()?.color === button.dataset.color)); });
+  $$('[data-color]').forEach(button => { button.hidden = ['image', 'file'].includes(current()?.type); button.setAttribute('aria-pressed', String(current()?.color === button.dataset.color)); });
 }
 
 function positionElement(element, object) {
@@ -92,7 +94,7 @@ function renderObject(object, ghost = false) {
       const img = new Image(); img.alt = object.text; element.append(img);
       const apply = url => { if (img.isConnected) img.src = url; };
       if (urls.has(object.blobId)) apply(urls.get(object.blobId));
-      else readValue('files', object.blobId).then(blob => {
+      else readBlob(object.blobId).then(blob => {
         if (!blob) { img.remove(); missing(element); return; }
         if (!urls.has(object.blobId)) urls.set(object.blobId, URL.createObjectURL(blob));
         apply(urls.get(object.blobId));
@@ -105,6 +107,9 @@ function renderObject(object, ghost = false) {
     const detail = document.createElement('small'); detail.textContent = object.blobId ? `${humanSize(object.size || 0)} · Двойной клик — скачать` : 'Вложение не включено в снимок';
     info.append(name, detail); element.append(symbol, info); element.setAttribute('aria-label', `Документ: ${object.text}`);
   } else element.setAttribute('aria-label', 'Прямоугольник');
+  if (!ghost && object.type !== 'stroke') {
+    const handle = document.createElement('button'); handle.className = 'resize-handle'; handle.dataset.resize = 'true'; handle.setAttribute('aria-label', 'Изменить размер объекта'); handle.title = 'Потяните для изменения размера'; element.append(handle);
+  }
   return element;
 }
 function missing(element) { const label = document.createElement('div'); label.className = 'missing-file'; label.textContent = 'Файл не включён в снимок. Добавьте оригинал.'; element.append(label); }
@@ -124,11 +129,14 @@ async function save(object, before, track = true, blob) {
 }
 function add(object, blob, edit = false) {
   if (active().length >= 1000) { toast('На доске уже 1000 объектов. Скачайте её перед продолжением.'); return Promise.resolve(); }
+  if (blob) unsavedFiles.set(object.blobId, blob);
   objects.set(object.id, object); renderObject(object); select(object.id);
+  let result;
   return enqueue(async () => {
-    const saved = await save(object, null, true, blob);
-    if (saved && edit) beginEdit(object.id);
-  });
+    result = await save(object, null, true, blob);
+    if (result && blob) unsavedFiles.delete(object.blobId);
+    if (result && edit) beginEdit(object.id);
+  }).then(() => result);
 }
 function change(patch) {
   const before = current(); if (!before || before.deleted) return;
@@ -210,7 +218,7 @@ function broadcastPreview(object) {
 function finishGesture(cancel = false) {
   const g = gesture; gesture = null; board.classList.remove('dragging'); $('#ghosts').replaceChildren(); send({ type: 'preview-end' });
   if (!g || g.type === 'pan') return;
-  if (g.type === 'move') {
+  if (g.type === 'move' || g.type === 'resize') {
     if (cancel) { renderObject(g.before); return; }
     if (g.moved) enqueue(async () => { if (!(await save(g.next, g.before))) toast('Объект изменён в другой вкладке. Перемещение отменено.'); });
   } else if (!cancel && g.type === 'pen' && g.points.length > 1) {
@@ -231,7 +239,7 @@ board.addEventListener('pointerdown', event => {
     gesture = { type: 'pan', x: event.clientX, y: event.clientY, camera: { ...camera } }; board.classList.add('dragging');
   } else if (tool === 'select' && node) {
     select(node.dataset.id); const object = current();
-    gesture = { type: 'move', x: p.x, y: p.y, before: structuredClone(object), next: object, moved: false };
+    gesture = { type: event.target.closest('[data-resize]') ? 'resize' : 'move', x: p.x, y: p.y, before: structuredClone(object), next: object, moved: false };
   } else if (tool === 'text' || tool === 'sticky') {
     const type = tool; setTool('select'); add(makeObject(type, p.x, p.y, { w: type === 'sticky' ? 240 : 300, h: type === 'sticky' ? 180 : 65, color }), undefined, true);
   } else if (tool === 'pen') gesture = { type: 'pen', points: [[p.x, p.y]] };
@@ -251,6 +259,10 @@ board.addEventListener('pointermove', event => {
   else if (g.type === 'move') {
     g.next = { ...g.before, x: g.before.x + p.x - g.x, y: g.before.y + p.y - g.y }; g.moved = Math.hypot(p.x - g.x, p.y - g.y) > 2;
     positionElement(elements.get(g.before.id), g.next); broadcastPreview(g.next);
+  } else if (g.type === 'resize') {
+    const w = Math.max(80, g.before.w + p.x - g.x);
+    const h = g.before.type === 'image' ? w * g.before.h / g.before.w : Math.max(50, g.before.h + p.y - g.y);
+    g.next = { ...g.before, w, h }; g.moved = true; positionElement(elements.get(g.before.id), g.next); broadcastPreview(g.next);
   } else if (g.type === 'pen') {
     const last = g.points.at(-1);
     if (g.points.length < 10000 && Math.hypot(p.x - last[0], p.y - last[1]) > 1) g.points.push([p.x, p.y]);
@@ -272,7 +284,7 @@ async function activate(id) {
   const object = objects.get(id); if (!object) return;
   if (['text', 'sticky'].includes(object.type)) beginEdit(id);
   else if (object.blobId) {
-    const blob = await readValue('files', object.blobId);
+    const blob = await readBlob(object.blobId);
     if (blob) download(blob, object.text); else toast('Оригинал вложения отсутствует.');
   } else if (['image', 'file'].includes(object.type)) toast('Это иллюстрация или снимок без оригинала файла.');
 }
@@ -283,7 +295,8 @@ async function insertFiles(files, origin = center()) {
     try {
       const type = fileKind(file), size = type === 'image' ? await imageSize(file) : { w: 315, h: 103 };
       const object = makeObject(type, origin.x + added * 30, origin.y + added * 30, { ...size, text: file.name || 'Изображение.png', blobId: crypto.randomUUID(), size: file.size, mime: file.type });
-      await add(object, file); added++;
+      if (!(await add(object, file))) throw new Error(`«${file.name}» пока не сохранён. Скачайте доску для резервной копии.`);
+      added++;
     } catch (error) { errors.push(error.message); }
   }
   if (files.length > 10) errors.push('За один раз можно добавить не больше 10 файлов.');
@@ -350,7 +363,7 @@ async function exportBoard() {
   const data = { format: 'ryadom-board', version: 1, title: $('#board-title').value, objects: active(), files: [] };
   let total = 0;
   for (const id of new Set(active().map(o => o.blobId).filter(Boolean))) {
-    const blob = await readValue('files', id); if (!blob) continue;
+    const blob = await readBlob(id); if (!blob) continue;
     total += blob.size; if (total > 35 * 1024 * 1024) throw new Error('Для экспорта доски вложения должны занимать не больше 35 МБ. Скачайте крупные файлы отдельно.');
     const encoded = await new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.onerror = reject; reader.readAsDataURL(blob); });
     data.files.push({ id, data: encoded });

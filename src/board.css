@@ -43,7 +43,10 @@ svg { display: block; }
 .object { position: absolute; user-select: none; touch-action: none; outline: 2px solid transparent; outline-offset: 5px; border-radius: 3px; }
 .object.selected { outline-color: var(--primary); }
 .object:focus-visible { outline-color: var(--primary); }
-.object.selected:after { content: ''; position: absolute; right: -10px; bottom: -10px; width: 9px; height: 9px; border: 1.5px solid var(--primary); background: var(--surface); pointer-events: none; }
+.resize-handle { display: none; position: absolute; right: -12px; bottom: -12px; width: 15px; height: 15px; padding: 0; border: 2px solid var(--primary); background: var(--surface); cursor: nwse-resize; border-radius: 3px; }
+.object.selected .resize-handle { display: block; }
+.object[data-type=text][data-color=mint] { color: var(--primary); }
+.object[data-type=text][data-color=blue] { color: var(--tertiary); }
 .object[data-type=sticky] { background: var(--primary-container); color: var(--on-primary-container); box-shadow: 0 5px 9px #00201d0c; padding: 27px; border-radius: 4px 4px 18px 4px; font-size: 18px; line-height: 1.55; }
 .object[data-type=sticky][data-color=blue] { background: var(--tertiary-container); color: var(--on-tertiary-container); }
 .object[data-type=sticky][data-color=neutral] { background: var(--secondary-container); color: var(--on-secondary-container); }
