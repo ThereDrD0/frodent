@@ -1,62 +1,64 @@
 <!doctype html>
 <html lang="ru">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
   <meta name="theme-color" content="#f4fbf9">
-  <title>Рядом — пространство для мыслей</title>
+  <title>Рядом — доска для общих идей</title>
   <link rel="icon" href="assets/logo.svg" type="image/svg+xml">
   <link rel="stylesheet" href="src/tokens.css">
-  <link rel="stylesheet" href="src/styles.css">
-  <script type="module" src="src/app.js"></script>
+  <link rel="stylesheet" href="src/board.css">
+  <script type="module" src="src/board.js"></script>
 </head>
 <body>
-  <a class="skip-link" href="#note-title">Перейти к заметке</a>
-  <aside class="sidebar" id="sidebar" aria-label="Боковая панель">
-    <a class="brand" href="./" aria-label="Рядом — главная"><img src="assets/logo.svg" width="38" height="38" alt=""><span>рядом<span class="brand-dot">.</span></span></a>
-    <div class="workspace"><span class="workspace-icon" data-icon="layers"></span><div><strong>Моё пространство</strong><small>Место для ваших идей</small></div></div>
-    <button class="new-note" data-action="new"><span data-icon="plus"></span>Новая заметка</button>
-    <nav class="navigation" aria-label="Заметки">
-      <button data-filter="all" class="nav-item active"><span data-icon="notes"></span>Все заметки<span id="all-count" class="count"></span></button>
-      <button data-filter="starred" class="nav-item"><span data-icon="star"></span>Избранное<span id="star-count" class="count"></span></button>
-      <button data-filter="trash" class="nav-item"><span data-icon="trash"></span>Корзина<span id="trash-count" class="count"></span></button>
-    </nav>
-    <div class="sidebar-caption">ЗАКРЕПЛЕНО <span data-icon="pin"></span></div>
-    <div id="pinned" class="pinned"></div>
-    <div class="sidebar-bottom">
-      <div class="local-card"><span class="local-dot"></span><strong>Ваши мысли — под рукой</strong><p>Заметки сохраняются в этом браузере. Работайте в своём ритме.</p></div>
-      <div class="bottom-actions"><button class="text-button" data-action="help"><span data-icon="help"></span>Как это работает</button><button class="icon-button" data-action="theme" title="Переключить тему" aria-label="Переключить тему"><span data-icon="moon"></span></button></div>
-      <div class="profile"><span class="avatar">Я</span><div><strong>Личное пространство</strong><small>Локальный режим</small></div></div>
+  <main id="board" aria-label="Доска идей" tabindex="0"><div id="world"><div id="objects"></div><div id="ghosts" aria-hidden="true"></div></div><div id="cursors" aria-hidden="true"></div></main>
+  <header class="board-header surface">
+    <img src="assets/logo.svg" width="34" height="34" alt="Рядом">
+    <div class="board-name"><input id="board-title" maxlength="180" value="Пространство идей" aria-label="Название доски"><span id="save-status" role="status">Открываем доску…</span></div>
+    <span class="divider"></span><button class="icon-button" data-action="menu" title="Меню доски" aria-label="Меню доски" aria-expanded="false"><span data-icon="more"></span></button>
+    <div id="board-menu" class="popover" hidden>
+      <button data-action="export"><span data-icon="download"></span>Скачать доску</button>
+      <button data-action="import"><span data-icon="upload"></span>Добавить из файла доски</button>
+      <button data-action="theme"><span data-icon="moon"></span>Сменить тему</button>
+      <button data-action="help"><span data-icon="help"></span>Управление и клавиши</button>
     </div>
-  </aside>
-  <button class="scrim" data-action="menu" aria-label="Закрыть меню" tabindex="-1"></button>
-  <main class="main">
-    <header class="topbar"><div class="breadcrumbs"><button class="icon-button mobile-menu" data-action="menu" aria-label="Открыть меню"><span data-icon="menu"></span></button><span class="desktop-label">Моё пространство</span><span class="desktop-label separator">/</span><strong id="breadcrumb">Все заметки</strong></div><div class="topbar-right"><span class="mode-label"><span class="local-dot"></span>Локальный режим</span><button class="icon-button" data-action="help" aria-label="О локальном режиме" title="О локальном режиме"><span data-icon="info"></span></button></div></header>
-    <section class="page-heading"><div><div class="eyebrow">МЫСЛИ, К КОТОРЫМ ХОЧЕТСЯ ВЕРНУТЬСЯ</div><h1 id="page-title">Все заметки<span class="heading-dot">.</span></h1><p id="page-description">Собирайте идеи. Находите главное. Создавайте своё.</p></div><div class="heading-art" aria-hidden="true"><img src="assets/orbit.svg" alt="" width="180" height="115"></div></section>
-    <div class="workbench">
-      <section class="note-panel" aria-label="Список заметок">
-        <label class="search"><span data-icon="search"></span><input id="search" type="search" placeholder="Найти заметку" aria-label="Найти заметку"><kbd>⌘ K</kbd></label>
-        <div class="list-heading"><span id="list-count"></span><label class="sort-label"><span class="sr-only">Сортировка заметок</span><select id="sort"><option value="updated">По изменению</option><option value="title">По названию</option><option value="created">Сначала новые</option></select></label></div>
-        <div class="notes-list" id="notes-list"></div>
-        <div class="list-footer"><span data-icon="lock"></span>Только в вашем браузере</div>
-      </section>
-      <section class="editor-panel" id="editor-panel" aria-label="Редактор заметки">
-        <div class="editor-top"><span class="document-label"><span data-icon="document"></span><span id="document-label">Заметка</span></span><div class="editor-actions"><span id="save-state" role="status">Сохранено</span><button class="icon-button" data-action="star" aria-label="В избранное" title="В избранное"><span data-icon="star"></span></button><button class="outlined-button" data-action="share"><span data-icon="share"></span><span>Поделиться</span></button><button class="icon-button" data-action="more" aria-label="Действия с заметкой" title="Действия с заметкой" aria-expanded="false"><span data-icon="more"></span></button></div><div id="more-menu" class="more-menu" hidden><button data-action="export"><span data-icon="download"></span>Скачать Markdown</button><button data-action="duplicate"><span data-icon="copy"></span>Создать копию</button><button data-action="delete" class="danger"><span data-icon="trash"></span>В корзину</button></div></div>
-        <div class="editor-content" id="editor-content">
-          <div class="note-banner"><span class="note-symbol" data-icon="sprout"></span><span class="tag">ПРОСТРАНСТВО ДЛЯ ИДЕЙ</span><span class="banner-circle"></span></div>
-          <div class="document-body"><textarea rows="1" id="note-title" class="note-title" aria-label="Название заметки" placeholder="Без названия" maxlength="180"></textarea><div class="note-meta"><span class="mini-avatar">Я</span><span>Вы</span><span>·</span><span id="updated-at"></span></div>
-          <div class="format-bar"><div class="format-tools" role="group" aria-label="Форматирование Markdown"><button data-format="heading" title="Заголовок" aria-label="Заголовок">H₂</button><span class="toolbar-divider"></span><button data-format="bold" title="Полужирный (Ctrl+B)" aria-label="Полужирный"><b>B</b></button><button data-format="italic" title="Курсив (Ctrl+I)" aria-label="Курсив"><i>I</i></button><button data-format="list" title="Список" aria-label="Список"><span data-icon="list"></span></button><button data-format="check" title="Список задач" aria-label="Список задач"><span data-icon="check-square"></span></button><button data-format="quote" title="Цитата" aria-label="Цитата"><span data-icon="quote"></span></button><button data-format="link" title="Ссылка" aria-label="Ссылка"><span data-icon="link"></span></button></div><div class="view-toggle" role="group" aria-label="Режим редактора"><button data-view="edit" aria-pressed="false" title="Редактировать" aria-label="Редактировать"><span data-icon="edit"></span></button><button data-view="preview" class="selected" aria-pressed="true" title="Читать" aria-label="Читать"><span data-icon="eye"></span></button></div></div>
-          <textarea id="note-content" aria-label="Текст заметки в Markdown" placeholder="С чего начнём? Запишите мысль…" spellcheck="true" hidden></textarea><article id="preview" class="markdown" aria-label="Просмотр заметки"></article>
-          </div>
-        </div>
-        <footer class="editor-footer"><span><span class="status-dot"></span><span id="editor-mode">Режим чтения</span></span><span id="word-count"></span><span>Markdown <span class="markdown-badge">M↓</span></span></footer>
-      </section>
-      <section id="empty-editor" class="empty-editor" hidden><img src="assets/orbit.svg" width="180" height="115" alt=""><h2>Место для новой мысли</h2><p>Выберите заметку или создайте первую.</p><button class="filled-button" data-action="new">Создать заметку</button></section>
-    </div>
-    <footer class="page-footer"><span>Меньше шума. Больше смысла.</span><span>Сделано для ваших мыслей <span class="tiny-flower">✳</span></span></footer>
-  </main>
+  </header>
+  <div class="collaboration surface"><span id="presence"><span class="live-dot"></span>Локальная доска</span><button class="filled-button" data-action="share" aria-label="Совместная работа"><span data-icon="people"></span><span>Совместная работа</span></button></div>
+  <nav class="tools surface" aria-label="Инструменты доски">
+    <button class="tool active" data-tool="select" aria-label="Выделение" title="Выделение · V" aria-pressed="true"><span data-icon="cursor"></span></button>
+    <button class="tool" data-tool="hand" aria-label="Перемещение доски" title="Перемещение · H / Пробел" aria-pressed="false"><span data-icon="hand"></span></button>
+    <span class="tool-divider"></span>
+    <button class="tool" data-tool="sticky" aria-label="Стикер" title="Стикер · N" aria-pressed="false"><span data-icon="sticky"></span></button>
+    <button class="tool" data-tool="text" aria-label="Текст" title="Текст · T" aria-pressed="false"><span data-icon="text"></span></button>
+    <button class="tool" data-tool="pen" aria-label="Карандаш" title="Карандаш · P" aria-pressed="false"><span data-icon="pen"></span></button>
+    <button class="tool" data-tool="shape" aria-label="Прямоугольник" title="Прямоугольник · R" aria-pressed="false"><span data-icon="square"></span></button>
+    <span class="tool-divider"></span>
+    <button class="tool" data-action="files" aria-label="Добавить файлы" title="Изображения и документы"><span data-icon="upload"></span></button>
+  </nav>
+  <div class="selection-tools surface" id="selection-tools" role="group" aria-label="Выбранный объект" hidden>
+    <button class="swatch mint" data-color="mint" title="Бирюзовый" aria-label="Бирюзовый"></button>
+    <button class="swatch blue" data-color="blue" title="Голубой" aria-label="Голубой"></button>
+    <button class="swatch neutral" data-color="neutral" title="Нейтральный" aria-label="Нейтральный"></button>
+    <span class="divider"></span>
+    <button class="icon-button" data-action="edit" title="Редактировать или скачать" aria-label="Редактировать или скачать"><span data-icon="edit"></span></button>
+    <button class="icon-button" data-action="duplicate" title="Копировать объект" aria-label="Копировать объект"><span data-icon="copy"></span></button>
+    <button class="icon-button" data-action="delete" title="Удалить · Delete" aria-label="Удалить объект"><span data-icon="trash"></span></button>
+  </div>
+  <div class="board-hint"><span data-icon="spark"></span><span id="tool-hint">Место, где мысли встречаются</span></div>
+  <div class="view-controls surface">
+    <button class="icon-button" data-action="undo" aria-label="Отменить" title="Отменить · Ctrl+Z" disabled><span data-icon="undo"></span></button>
+    <button class="icon-button" data-action="redo" aria-label="Повторить" title="Повторить · Ctrl+Shift+Z" disabled><span data-icon="redo"></span></button>
+    <span class="divider"></span>
+    <button class="icon-button" data-action="zoom-out" aria-label="Уменьшить масштаб" title="Уменьшить"><span data-icon="minus"></span></button>
+    <button id="zoom" data-action="reset-zoom" title="Масштаб 100%" aria-label="Масштаб 100%">100%</button>
+    <button class="icon-button" data-action="zoom-in" aria-label="Увеличить масштаб" title="Увеличить"><span data-icon="plus"></span></button>
+    <button class="icon-button" data-action="fit" aria-label="Показать всю доску" title="Показать всё · 1"><span data-icon="fit"></span></button>
+  </div>
+  <div id="drop-overlay" hidden><div><span data-icon="upload"></span><h2>Положите это на доску</h2><p>Картинки и документы · до 20 МБ на файл</p></div></div>
+  <input id="file-input" type="file" multiple accept="image/png,image/jpeg,image/webp,image/gif,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.md,.csv,.odt,.ods,.odp,.rtf" hidden>
+  <input id="import-input" type="file" accept=".json,.ryadom" hidden>
   <dialog id="dialog" aria-labelledby="dialog-title"><div id="dialog-content"></div></dialog>
-  <div class="snackbar" id="snackbar" role="status" hidden></div>
+  <div id="toast" role="status" hidden></div>
 </body>
 </html>
