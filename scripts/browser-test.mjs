@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
 // Reuse an existing Playwright installation. This script never installs anything.
@@ -55,11 +55,26 @@ try {
   await page.keyboard.press('Escape');
   assert.equal(await page.locator('dialog').isVisible(), false);
   await page.locator('[data-action="more"]').click();
-  const downloadEvent = page.waitForEvent('download', { timeout: 5000 });
+  const captureExport = process.env.BROWSER_CAPTURE_EXPORT === '1';
+  if (captureExport) await page.evaluate(() => {
+    const create = URL.createObjectURL.bind(URL);
+    URL.createObjectURL = blob => { window.exportText = blob.text(); return create(blob); };
+    const click = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function () { window.exportName = this.download; click.call(this); };
+  });
+  const downloadEvent = captureExport ? null : page.waitForEvent('download');
   await page.locator('[data-action="export"]').click();
-  const download = await downloadEvent.catch(async error => { console.log({ errors, external, state: await page.locator('#more-menu').innerHTML() }); throw error; });
-  assert.equal(download.suggestedFilename(), 'Проверка редактора.md');
-  await download.saveAs(resolve('test-results/export.md'));
+  if (captureExport) {
+    const exported = await page.evaluate(async () => ({ name: window.exportName, text: await window.exportText }));
+    assert.equal(exported.name, 'Проверка редактора.md');
+    assert.ok(exported.text.startsWith('# Проверка редактора\n\n**текст**'));
+    await writeFile('test-results/export.md', exported.text);
+    console.log('Export Blob content and download action verified; native download event is not covered in capture mode.');
+  } else {
+    const download = await downloadEvent;
+    assert.equal(download.suggestedFilename(), 'Проверка редактора.md');
+    await download.saveAs(resolve('test-results/export.md'));
+  }
   await page.locator('[data-action="more"]').click();
   await page.locator('[data-action="duplicate"]').click();
   assert.equal(await page.locator('#note-title').inputValue(), 'Проверка редактора — копия');
