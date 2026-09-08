@@ -1,1 +1,1 @@
-*{box-sizing:border-box}
+*{box-sizing:border-box}body{margin:0;background:var(--surface);color:var(--on-surface);font:14px/1.5 'Segoe UI',Arial,sans-serif}button,input,textarea,select{font:inherit;color:inherit}
