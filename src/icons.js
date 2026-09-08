@@ -21,6 +21,7 @@ const paths = {
   eye: '<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/>',
   sprout: '<path d="M12 21v-9M12 15C3 16 3 7 3 7s9-1 9 8ZM12 11c0-8 9-8 9-8s0 9-9 8Z"/>',
   menu: '<path d="M4 6h16M4 12h16M4 18h16"/>',
+  download: '<path d="M12 3v12m-5-5 5 5 5-5M4 15v6h16v-6"/>',
 };
 export function icon(name) { return `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.document}</svg>`; }
 export function hydrateIcons(root = document) { root.querySelectorAll('[data-icon]').forEach(el => { el.innerHTML = icon(el.dataset.icon); }); }
