@@ -83,7 +83,7 @@ try {
   await object(page, 'landscape').click();
   const imageBefore = await object(page, 'landscape').evaluate(el => parseFloat(el.style.width));
   const handle = await object(page, 'landscape').locator('.resize-handle').boundingBox();
-  if (!handle) console.log(await page.evaluate(() => ({ scroll: [document.querySelector('#board').scrollLeft, document.querySelector('#board').scrollTop, scrollX, scrollY], world: document.querySelector('#world').getAttribute('style'), object: document.querySelector('[data-id="landscape"]').outerHTML, box: document.querySelector('[data-id="landscape"]').getBoundingClientRect().toJSON(), style: getComputedStyle(document.querySelector('[data-id="landscape"]')).cssText })));
+  assert.ok(handle, 'Selected image must have a visible resize handle');
   await drag(page, { x: handle.x + 7, y: handle.y + 7 }, { x: handle.x + 60, y: handle.y + 35 });
   assert.ok(await object(page, 'landscape').evaluate(el => parseFloat(el.style.width)) > imageBefore);
   await page.locator('[data-action="delete"]').click(); await saved(page);
@@ -128,5 +128,17 @@ try {
   await page.screenshot({ path: 'test-results/board-mobile-dark.png' });
   assert.deepEqual(external, []); assert.deepEqual(errors, []);
   console.log('PASS: four viewport widths, mobile controls, both themes, honest collaboration dialog, no external requests or page errors.');
+  const referenceContext = await context.browser().newContext({ viewport: { width: 1440, height: 960 }, locale: 'ru-RU' });
+  await referenceContext.route('**/*', route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
+  const reference = await referenceContext.newPage(); await reference.goto(origin); await saved(reference);
+  await reference.screenshot({ path: 'test-results/board-desktop-light.png' });
+  await reference.locator('[data-action="menu"]').click(); await reference.locator('[data-action="theme"]').click();
+  await reference.screenshot({ path: 'test-results/board-desktop-dark.png' });
+  await reference.locator('[data-action="menu"]').click(); await reference.locator('[data-action="theme"]').click();
+  await reference.setViewportSize({ width: 390, height: 844 }); await reference.locator('[data-action="fit"]').click();
+  await reference.screenshot({ path: 'test-results/board-mobile-light.png' });
+  await reference.locator('[data-action="menu"]').click(); await reference.locator('[data-action="theme"]').click();
+  await reference.screenshot({ path: 'test-results/board-mobile-dark.png' });
+  await referenceContext.close();
 } catch (error) { await page.screenshot({ path: 'test-results/board-failure.png' }).catch(() => {}); throw error; }
 finally { await context.close(); await rm(profile, { recursive: true, force: true }); }

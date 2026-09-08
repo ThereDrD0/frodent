@@ -26,7 +26,8 @@ export function bounds(objects) {
 }
 export function fitCamera(objects, width, height) {
   const box = bounds(objects);
-  const zoom = clamp(Math.min((width - 180) / Math.max(box.w, 1), (height - 220) / Math.max(box.h, 1)), .2, 1.2);
+  const horizontalPadding = width <= 560 ? 48 : 180;
+  const zoom = clamp(Math.min((width - horizontalPadding) / Math.max(box.w, 1), (height - 220) / Math.max(box.h, 1)), .2, 1.2);
   return { x: width / 2 - (box.x + box.w / 2) * zoom, y: height / 2 - (box.y + box.h / 2) * zoom + 12, zoom };
 }
 export function normalizeStroke(points) {
