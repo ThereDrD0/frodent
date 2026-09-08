@@ -261,7 +261,7 @@ board.addEventListener('pointermove', event => {
 });
 board.addEventListener('pointerup', event => { pointers.delete(event.pointerId); if (pinch) { if (pointers.size < 2) pinch = null; return; } finishGesture(); });
 board.addEventListener('pointercancel', event => { pointers.delete(event.pointerId); pinch = null; finishGesture(true); });
-board.addEventListener('dblclick', event => { if (tool !== 'select') return; const id = event.target.closest('[data-id]')?.dataset.id; if (id) activate(id); else { const p = point(event); add(makeObject('text', p.x, p.y, { h: 65, w: 300 }), undefined, true); } });
+board.addEventListener('dblclick', event => { if (tool !== 'select') return; const id = document.elementFromPoint(event.clientX, event.clientY)?.closest('[data-id]')?.dataset.id; if (id) activate(id); else { const p = point(event); add(makeObject('text', p.x, p.y, { h: 65, w: 300 }), undefined, true); } });
 board.addEventListener('wheel', event => {
   event.preventDefault();
   if (event.ctrlKey || event.metaKey) setCamera(zoomAt(camera, camera.zoom * Math.exp(-event.deltaY * .008), { x: event.clientX, y: event.clientY }));
