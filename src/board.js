@@ -206,7 +206,12 @@ function undo(redo = false) {
     const value = redo ? entry.after : entry.before || { ...object, deleted: true };
     const saved = await save({ ...value, id: object.id }, object, false);
     if (!saved) { toast('Не удалось отменить: объект изменился.'); return; }
-    source.pop(); if (redo) entry.after = saved; else entry.undone = saved; target.push(entry); select(saved.deleted ? null : saved.id);
+    source.pop(); if (redo) entry.after = saved; else entry.undone = saved; target.push(entry);
+    // Revision increments from our own undo must not look like a remote change
+    // when walking further back through edits to the same object.
+    const next = [...source].reverse().find(item => item.after.id === saved.id);
+    if (next) { if (redo && next.undone) next.undone.revision = saved.revision; else if (!redo) next.after.revision = saved.revision; }
+    select(saved.deleted ? null : saved.id);
   });
 }
 
