@@ -98,10 +98,10 @@ try {
   }
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({ path: 'test-results/mobile-light.png', fullPage: true });
-  await page.locator('[data-action="menu"]').first().click();
+  await page.locator('.mobile-menu').click();
   await page.locator('[data-filter="starred"]').click();
   assert.equal(await page.locator('body').evaluate(el => el.classList.contains('menu-open')), false);
-  await page.locator('[data-action="menu"]').first().click();
+  await page.locator('.mobile-menu').click();
   await page.locator('[data-action="theme"]').click();
   await page.keyboard.press('Escape');
   await page.screenshot({ path: 'test-results/mobile-dark.png', fullPage: true });
