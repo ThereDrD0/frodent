@@ -1,0 +1,105 @@
+import assert from 'node:assert/strict';
+import { mkdir, mkdtemp } from 'node:fs/promises';
+import { resolve } from 'node:path';
+
+// Reuse an existing Playwright installation. This script never installs anything.
+const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const profile = await mkdtemp('/tmp/ryadom-browser-');
+const context = await chromium.launchPersistentContext(profile, { executablePath: process.env.BROWSER_PATH || undefined, headless: true, viewport: { width: 1440, height: 1050 }, locale: 'ru-RU', reducedMotion: 'reduce', acceptDownloads: true, args: ['--disable-vivaldi', '--disable-gpu', '--disable-background-networking', '--disable-component-update', '--no-first-run', '--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1'] });
+const origin = 'http://127.0.0.1:4173';
+const external = [], errors = [];
+await context.route('**/*', route => {
+  if (new URL(route.request().url()).origin !== origin) { external.push(route.request().url()); return route.abort(); }
+  return route.continue();
+});
+await mkdir('test-results', { recursive: true });
+const page = await context.newPage();
+page.on('pageerror', error => errors.push(error.message));
+page.on('console', msg => { if (msg.type() === 'error') errors.push(msg.text()); });
+try {
+  await page.goto(origin);
+  await page.locator('.note-card').first().waitFor();
+  assert.equal(await page.locator('.note-card').count(), 5);
+  await page.screenshot({ path: 'test-results/desktop-light.png', fullPage: true });
+  await page.locator('[data-action="theme"]').click();
+  assert.equal(await page.locator('html').getAttribute('data-theme'), 'dark');
+  await page.screenshot({ path: 'test-results/desktop-dark.png', fullPage: true });
+  await page.locator('[data-action="theme"]').click();
+  await page.locator('#preview input').nth(1).check();
+  await page.reload();
+  assert.equal(await page.locator('#preview input').nth(1).isChecked(), true);
+  await page.locator('[data-action="new"]').first().click();
+  await page.locator('#note-title').fill('Проверка редактора');
+  await page.locator('#note-content').fill('## Тест\n\nПривет, мир.\n- [ ] Проверить\n<script>alert(1)</script>');
+  await page.locator('[data-view="preview"]').click();
+  assert.equal(await page.locator('#preview h2').textContent(), 'Тест');
+  assert.equal(await page.locator('#preview script').count(), 0);
+  await page.reload();
+  await page.locator('[data-note]').filter({ hasText: 'Проверка редактора' }).first().click();
+  assert.equal(await page.locator('#note-title').inputValue(), 'Проверка редактора');
+  await page.locator('[data-action="star"]').click();
+  await page.locator('[data-filter="starred"]').click();
+  assert.equal(await page.locator('.note-card').count(), 3);
+  await page.locator('#search').fill('привет');
+  assert.equal(await page.locator('.note-card').count(), 1);
+  await page.locator('#search').fill('ничегонесуществует');
+  assert.equal(await page.locator('#empty-editor').isVisible(), true);
+  await page.locator('[data-action="clear-search"]').click();
+  await page.locator('[data-note]').filter({ hasText: 'Проверка редактора' }).first().click();
+  await page.locator('[data-view="edit"]').click();
+  await page.locator('#note-content').evaluate(el => el.setSelectionRange(0, 0));
+  await page.locator('[data-format="bold"]').click();
+  assert.ok((await page.locator('#note-content').inputValue()).startsWith('**текст**'));
+  await page.locator('[data-action="share"]').click();
+  assert.equal(await page.locator('dialog').isVisible(), true);
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('dialog').isVisible(), false);
+  await page.locator('[data-action="more"]').click();
+  const downloadEvent = page.waitForEvent('download', { timeout: 5000 });
+  await page.locator('[data-action="export"]').click();
+  const download = await downloadEvent.catch(async error => { console.log({ errors, external, state: await page.locator('#more-menu').innerHTML() }); throw error; });
+  assert.equal(download.suggestedFilename(), 'Проверка редактора.md');
+  await download.saveAs(resolve('test-results/export.md'));
+  await page.locator('[data-action="more"]').click();
+  await page.locator('[data-action="duplicate"]').click();
+  assert.equal(await page.locator('#note-title').inputValue(), 'Проверка редактора — копия');
+  await page.locator('[data-action="more"]').click();
+  await page.locator('[data-action="delete"]').click();
+  await page.locator('[data-filter="trash"]').click();
+  assert.equal(await page.locator('.note-card').count(), 1);
+  assert.equal(await page.locator('#note-title').getAttribute('readonly'), '');
+  await page.locator('[data-action="more"]').click();
+  await page.locator('[data-action="restore"]').click();
+  assert.equal(await page.locator('#note-title').inputValue(), 'Проверка редактора — копия');
+  await page.keyboard.press('Control+k');
+  assert.equal(await page.locator('#search').evaluate(el => el === document.activeElement), true);
+  await page.locator('#search').fill('');
+  await page.locator('[data-note="welcome"]').first().click();
+  await page.locator('[data-view="preview"]').click();
+  for (const width of [320, 390, 560, 768, 1024, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `horizontal overflow at ${width}`);
+    assert.equal(await page.locator('[data-action="share"]').isVisible(), true);
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: 'test-results/mobile-light.png', fullPage: true });
+  await page.locator('[data-action="menu"]').first().click();
+  await page.locator('[data-filter="starred"]').click();
+  assert.equal(await page.locator('body').evaluate(el => el.classList.contains('menu-open')), false);
+  await page.locator('[data-action="menu"]').first().click();
+  await page.locator('[data-action="theme"]').click();
+  await page.keyboard.press('Escape');
+  await page.screenshot({ path: 'test-results/mobile-dark.png', fullPage: true });
+  assert.deepEqual(external, []);
+  assert.deepEqual(errors, []);
+  console.log('PASS: create, save/reload, Markdown, XSS, checklist, favorites, search/empty state, formatting, share dialog, export, duplicate, trash/restore, keyboard, themes, 6 viewport widths, mobile navigation, zero external requests and console errors.');
+  // Corrupt storage must survive initialization without being overwritten.
+  const broken = await context.newPage();
+  await broken.addInitScript(() => localStorage.setItem('ryadom.notes.v1', '{broken'));
+  await broken.goto(origin);
+  await broken.locator('.note-card').first().waitFor();
+  await broken.locator('[data-action="new"]').first().click();
+  assert.equal(await broken.evaluate(() => localStorage.getItem('ryadom.notes.v1')), '{broken');
+  assert.equal(await broken.locator('#save-state').textContent(), 'Не сохранено');
+  console.log('PASS: corrupt storage preserved.');
+} finally { await context.close(); }
