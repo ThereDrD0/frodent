@@ -244,6 +244,7 @@ document.addEventListener('click', event => {
 });
 $('#note-title').addEventListener('input', () => {
   const n = current(); if (!n || n.deleted) return;
+  if ($('#note-title').value.includes('\n')) $('#note-title').value = $('#note-title').value.replace(/\n/g, ' ');
   n.title = $('#note-title').value; n.updated = Date.now(); save(); renderList(); renderMeta();
 });
 $('#note-title').addEventListener('blur', () => {
