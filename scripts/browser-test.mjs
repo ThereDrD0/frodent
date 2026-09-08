@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
 // Reuse an existing Playwright installation. This script never installs anything.
@@ -117,4 +117,44 @@ try {
   assert.equal(await broken.evaluate(() => localStorage.getItem('ryadom.notes.v1')), '{broken');
   assert.equal(await broken.locator('#save-state').textContent(), 'Не сохранено');
   console.log('PASS: corrupt storage preserved.');
-} finally { await context.close(); }
+  assert.equal(await page.locator('#save-state').textContent(), 'Конфликт вкладок');
+  console.log('PASS: cross-tab conflict blocks overwriting.');
+  const quota = await context.newPage();
+  await quota.addInitScript(() => {
+    localStorage.removeItem('ryadom.notes.v1');
+    Storage.prototype.setItem = () => { throw new DOMException('Quota exceeded', 'QuotaExceededError'); };
+  });
+  await quota.goto(origin);
+  await quota.locator('.mobile-menu').click();
+  await quota.locator('[data-action="new"]').first().click();
+  await quota.locator('#note-content').fill('Этот черновик должен остаться доступен');
+  assert.equal(await quota.locator('#save-state').textContent(), 'Не сохранено');
+  assert.equal(await quota.locator('#note-content').inputValue(), 'Этот черновик должен остаться доступен');
+  console.log('PASS: storage quota failure preserves draft and reports unsaved state.');
+  for (const path of ['/.git/config', '/package.json', '/docs/palette.json', '/api/v1/notes']) assert.equal((await fetch(origin + path)).status, 404);
+  assert.equal((await fetch(origin + '/', { method: 'POST' })).status, 405);
+  const head = await fetch(origin + '/src/app.js', { method: 'HEAD' });
+  assert.equal(head.status, 200); assert.equal(await head.text(), '');
+  assert.ok(head.headers.get('content-security-policy').includes("connect-src 'none'"));
+  console.log('PASS: static server blocks private files, rejects writes and supplies CSP.');
+  // Clean reference screenshots are generated independently of interaction fixtures.
+  const reference = await context.newPage();
+  await reference.addInitScript(() => localStorage.clear());
+  await reference.setViewportSize({ width: 1440, height: 1050 });
+  await reference.goto(origin);
+  await reference.locator('.note-card').first().waitFor();
+  await reference.screenshot({ path: 'test-results/desktop-light.png', fullPage: true });
+  await reference.locator('[data-action="theme"]').click();
+  await reference.screenshot({ path: 'test-results/desktop-dark.png', fullPage: true });
+  await reference.locator('[data-action="theme"]').click();
+  await reference.setViewportSize({ width: 390, height: 844 });
+  assert.equal(await reference.locator('#sidebar').evaluate(el => el.inert), true);
+  await reference.screenshot({ path: 'test-results/mobile-light.png', fullPage: true });
+  await reference.locator('.mobile-menu').click();
+  await reference.locator('[data-action="theme"]').click();
+  await reference.keyboard.press('Escape');
+  await reference.locator('.mobile-menu').blur();
+  await reference.screenshot({ path: 'test-results/mobile-dark.png', fullPage: true });
+  assert.deepEqual(external, []);
+  assert.deepEqual(errors, []);
+} finally { await context.close(); await rm(profile, { recursive: true, force: true }); }
