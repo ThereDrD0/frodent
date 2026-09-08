@@ -82,6 +82,7 @@ a {
 }
 
 .sidebar {
+  overflow-y:auto;
   width:250px;
   position:fixed;
   inset:0 auto 0 0;
