@@ -120,6 +120,7 @@ try {
   assert.equal(await page.locator('#save-state').textContent(), 'Конфликт вкладок');
   console.log('PASS: cross-tab conflict blocks overwriting.');
   const quota = await context.newPage();
+  await quota.setViewportSize({ width: 390, height: 844 });
   await quota.addInitScript(() => {
     localStorage.removeItem('ryadom.notes.v1');
     Storage.prototype.setItem = () => { throw new DOMException('Quota exceeded', 'QuotaExceededError'); };
