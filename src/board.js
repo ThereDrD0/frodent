@@ -381,14 +381,17 @@ async function importBoard(data) {
     const bytes = Uint8Array.from(atob(content), c => c.charCodeAt(0));
     blobs.set(file.id, new Blob([bytes], { type: header.slice(5, -7) }));
   }
+  const prepared = [];
   for (const original of imported) {
     const blob = blobs.get(original.blobId), id = crypto.randomUUID();
     if (blob) fileKind(new File([blob], original.text, { type: blob.type }));
     const object = { ...original, id, revision: 0, created: Date.now(), x: p.x + original.x - minX, y: p.y + original.y - minY };
     delete object.blobId;
     if (blob) object.blobId = crypto.randomUUID();
-    await add(object, blob);
+    if (!validObject(object)) throw new Error('Импорт выходит за допустимые размеры доски.');
+    prepared.push({ object, blob });
   }
+  for (const { object, blob } of prepared) if (!(await add(object, blob))) throw new Error('Импорт остановлен: не удалось сохранить объект. Уже добавленные объекты доступны на доске.');
   fit(); toast('Объекты добавлены на доску. Существующие объекты сохранены.');
 }
 $('#import-input').addEventListener('change', async event => {

@@ -10,6 +10,7 @@ export function validObject(o) {
     ['x', 'y', 'w', 'h'].every(k => Number.isFinite(o[k]) && Math.abs(o[k]) <= 1000000) && o.w > 0 && o.h > 0 &&
     typeof o.text === 'string' && o.text.length <= 20000 && COLORS.includes(o.color) &&
     Number.isInteger(o.revision) && o.revision >= 0 && typeof o.deleted === 'boolean' && Number.isFinite(o.created) &&
+    (o.blobId === undefined || (typeof o.blobId === 'string' && o.blobId.length < 100)) &&
     (o.type !== 'stroke' || (Array.isArray(o.points) && o.points.length <= 10000 && o.points.every(p => Array.isArray(p) && p.length === 2 && p.every(n => Number.isFinite(n) && Math.abs(n) <= 1000000))));
 }
 export function worldPoint(screen, camera) { return { x: (screen.x - camera.x) / camera.zoom, y: (screen.y - camera.y) / camera.zoom }; }
