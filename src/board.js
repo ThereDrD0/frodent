@@ -57,7 +57,7 @@ function select(id) {
   selected = id;
   for (const [key, element] of elements) element.classList.toggle('selected', key === id);
   $('#selection-tools').hidden = !current() || current().deleted || tool !== 'select';
-  $$('[data-color]').forEach(button => { button.hidden = ['image', 'file'].includes(current()?.type); button.setAttribute('aria-pressed', String(current()?.color === button.dataset.color)); });
+  $$('button[data-color]').forEach(button => { button.hidden = ['image', 'file'].includes(current()?.type); button.setAttribute('aria-pressed', String(current()?.color === button.dataset.color)); });
 }
 
 function positionElement(element, object) {
