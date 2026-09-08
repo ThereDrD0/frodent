@@ -176,7 +176,19 @@ function updateContent() {
   save(); renderList(); renderMeta();
 }
 
-function closeSidebar() { document.body.classList.remove('menu-open'); }
+const narrowScreen = matchMedia('(max-width: 760px)');
+function syncSidebar() {
+  const open = document.body.classList.contains('menu-open');
+  $('#sidebar').inert = narrowScreen.matches && !open;
+  $('.mobile-menu').setAttribute('aria-expanded', String(open));
+  $('.mobile-menu').setAttribute('aria-controls', 'sidebar');
+}
+function closeSidebar() {
+  const focusedInside = $('#sidebar').contains(document.activeElement);
+  document.body.classList.remove('menu-open'); syncSidebar();
+  if (narrowScreen.matches && focusedInside) $('.mobile-menu').focus();
+}
+narrowScreen.addEventListener('change', closeSidebar);
 
 document.addEventListener('click', event => {
   const target = event.target.closest('button');
@@ -199,7 +211,10 @@ document.addEventListener('click', event => {
       try { localStorage.setItem('ryadom.theme', next); } catch { snack('Тема изменена на время этой сессии.'); }
       break;
     }
-    case 'menu': document.body.classList.toggle('menu-open'); break;
+    case 'menu':
+      document.body.classList.toggle('menu-open'); syncSidebar();
+      if (document.body.classList.contains('menu-open')) $('#sidebar .new-note').focus();
+      break;
     case 'help': dialog('help'); break;
     case 'share': dialog('share'); break;
     case 'close-dialog': $('#dialog').close(); break;
@@ -266,5 +281,6 @@ window.addEventListener('storage', event => {
   snack('Данные изменены в другой вкладке. Скачайте текущую заметку и обновите страницу.', exportNote, 'Скачать');
 });
 window.addEventListener('beforeunload', event => { if (dirty) { event.preventDefault(); event.returnValue = ''; } });
-hydrateIcons(); renderList(); renderEditor();
+hydrateIcons(); renderList(); renderEditor(); syncSidebar();
+$('.search kbd').textContent = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘ K' : 'Ctrl K';
 if (storageBlocked) snack('Не удалось прочитать хранилище. Существующие данные не перезаписаны.', () => dialog('help'), 'Подробнее');
