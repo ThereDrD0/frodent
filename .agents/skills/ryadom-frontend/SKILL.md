@@ -26,8 +26,6 @@ Read [design decisions](../../../docs/DESIGN.md) for visual changes and [backend
 
 Use semantic variables in `src/tokens.css`. They were generated using `matugen --dry-run -j hex color hex '#4EF5E7'`; `docs/palette.json` records the actual output. Never run matugen without `--dry-run` in this task context. Preserve both themes, responsive drawer, keyboard focus, native dialog and reduced-motion behavior. Local Qt Material source references are listed in the design document; no network is needed.
 
-## Validation
-
 ## Unified local launcher
 
 The user subsequently authorized a single launcher for both servers. `start.mjs` (or `npm run start:all`) starts the existing sibling binary and the frontend; `--frontend` skips all backend prerequisites. It does not integrate the frontend with the API. Read `docs/STARTUP.md` at repository root before changing it.
