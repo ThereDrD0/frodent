@@ -17,8 +17,8 @@ async function listen(server, number = 0) {
   return server.address().port;
 }
 async function unusedPort() { const server = createServer(); const number = await listen(server); await new Promise(resolve => server.close(resolve)); return number; }
-function start(env, args = []) {
-  const child = spawn(process.execPath, [join(front, 'start.mjs'), ...args], { cwd: tmpdir(), env: { ...process.env, ...env, PATH: `${bin}:${process.env.PATH}` }, stdio: ['ignore', 'pipe', 'pipe'] });
+function start(env, args = [], entry = 'start.mjs') {
+  const child = spawn(process.execPath, [join(front, entry), ...args], { cwd: tmpdir(), env: { ...process.env, ...env, PATH: `${bin}:${process.env.PATH}` }, stdio: ['ignore', 'pipe', 'pipe'] });
   processes.add(child);
   let output = '';
   child.stdout.on('data', data => { output += data; });
@@ -36,6 +36,7 @@ try {
   await mkdir(join(back, 'build'), { recursive: true });
   await mkdir(bin);
   await copyFile(new URL('../start.mjs', import.meta.url), join(front, 'start.mjs'));
+  await copyFile(new URL('../start-frontend.mjs', import.meta.url), join(front, 'start-frontend.mjs'));
   await copyFile(new URL('./serve.mjs', import.meta.url), join(front, 'scripts/serve.mjs'));
   await writeFile(join(front, 'index.html'), '<h1>Fixture</h1>');
   // The fixture's dependency probe is mocked; actual missing libraries are tested separately.
@@ -73,6 +74,11 @@ try {
   assert.equal((await fetch(`http://127.0.0.1:${frontendPort}`)).status, 200);
   frontend.child.kill('SIGINT'); await frontend.ended;
   console.log('PASS: frontend-only mode, occupied port preserved, Ctrl+C signal.');
+  const shortcut = start(env, [], 'start-frontend.mjs');
+  await until(() => shortcut.output().includes('Остановка обоих серверов'), 'frontend shortcut ready');
+  assert.equal((await fetch(`http://127.0.0.1:${frontendPort}`)).status, 200);
+  shortcut.child.kill('SIGTERM'); await shortcut.ended;
+  console.log('PASS: argument-free frontend shortcut.');
   const failed = start({ ...env, FIXTURE_FAIL: '1' });
   assert.equal(await failed.ended, 1);
   assert.deepEqual(await readdir(join(front, '.runtime')), []);
