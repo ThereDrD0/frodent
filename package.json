@@ -3,6 +3,6 @@
   "version": "0.2.0",
   "private": true,
   "type": "module",
-  "scripts": { "start": "node scripts/serve.mjs", "start:all": "node start.mjs", "test": "node --test tests/*.test.mjs" },
+  "scripts": { "start": "node scripts/serve.mjs", "start:frontend": "node start-frontend.mjs", "start:all": "node start.mjs", "test": "node --test tests/*.test.mjs" },
   "engines": { "node": ">=20" }
 }
