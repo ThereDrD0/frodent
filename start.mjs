@@ -84,7 +84,7 @@ process.once('SIGTERM', () => { void shutdown(143); });
 
 async function main() {
   if (process.argv.includes('--help')) {
-    console.log('node frondent/start.mjs             — фронтенд и C++-сервер\nnode frondent/start.mjs --frontend  — только локальный редактор\nПеременные: PORT=4173, BACKEND_PORT=5555, BACKEND_BINARY=/путь/к/бинарнику.\nPostgreSQL должна быть подготовлена заранее. Скрипт не устанавливает ПО и не запускает системные службы.');
+    console.log('node frondent/start.mjs             — фронтенд и C++-сервер\nnode frondent/start-frontend.mjs    — только локальный редактор без аргументов\nnode frondent/start.mjs --frontend  — тот же режим для совместимости\nПеременные: PORT=4173, BACKEND_PORT=5555, BACKEND_BINARY=/путь/к/бинарнику.\nPostgreSQL должна быть подготовлена заранее. Скрипт не устанавливает ПО и не запускает системные службы.');
     return;
   }
   if (process.argv.slice(2).some(arg => arg !== '--frontend')) throw new Error('Неизвестный аргумент. Используйте --help.');
