@@ -27,6 +27,15 @@ PIC = "http://schemas.openxmlformats.org/drawingml/2006/picture"
 R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 PKG_REL = "http://schemas.openxmlformats.org/package/2006/relationships"
 CT = "http://schemas.openxmlformats.org/package/2006/content-types"
+OFFICE = "urn:schemas-microsoft-com:office:office"
+VML = "urn:schemas-microsoft-com:vml"
+WORD_10 = "urn:schemas-microsoft-com:office:word"
+WPS = "http://schemas.microsoft.com/office/word/2010/wordprocessingShape"
+WPG = "http://schemas.microsoft.com/office/word/2010/wordprocessingGroup"
+MC = "http://schemas.openxmlformats.org/markup-compatibility/2006"
+WP14 = "http://schemas.microsoft.com/office/word/2010/wordprocessingDrawing"
+W14 = "http://schemas.microsoft.com/office/word/2010/wordml"
+W15 = "http://schemas.microsoft.com/office/word/2012/wordml"
 
 
 BG = "#F4FBF9"
@@ -452,102 +461,82 @@ def next_media_number(names: list[str]) -> int:
     return max(numbers, default=0) + 1
 
 
-def make_drawing(rel_id: str, doc_pr_id: int, width_emu: int, height_emu: int, title: str) -> ET.Element:
-    inline = ET.Element(qname(WP, "inline"), {
-        "distT": "0", "distB": "0", "distL": "0", "distR": "0",
-    })
-    ET.SubElement(inline, qname(WP, "extent"), {"cx": str(width_emu), "cy": str(height_emu)})
-    ET.SubElement(inline, qname(WP, "effectExtent"), {"l": "0", "t": "0", "r": "0", "b": "0"})
-    ET.SubElement(inline, qname(WP, "docPr"), {"id": str(doc_pr_id), "name": title, "descr": title})
-    frame_locks = ET.SubElement(inline, qname(WP, "cNvGraphicFramePr"))
-    ET.SubElement(frame_locks, qname(A, "graphicFrameLocks"), {"noChangeAspect": "1"})
-
-    graphic = ET.SubElement(inline, qname(A, "graphic"))
-    graphic_data = ET.SubElement(graphic, qname(A, "graphicData"), {"uri": "http://schemas.openxmlformats.org/drawingml/2006/picture"})
-    pic = ET.SubElement(graphic_data, qname(PIC, "pic"))
-    nv_pic = ET.SubElement(pic, qname(PIC, "nvPicPr"))
-    ET.SubElement(nv_pic, qname(PIC, "cNvPr"), {"id": str(doc_pr_id), "name": title})
-    c_nv_pic_pr = ET.SubElement(nv_pic, qname(PIC, "cNvPicPr"))
-    ET.SubElement(c_nv_pic_pr, qname(A, "picLocks"), {"noChangeAspect": "1", "noChangeArrowheads": "1"})
-    blip_fill = ET.SubElement(pic, qname(PIC, "blipFill"))
-    ET.SubElement(blip_fill, qname(A, "blip"), {qname(R, "embed"): rel_id})
-    stretch = ET.SubElement(blip_fill, qname(A, "stretch"))
-    ET.SubElement(stretch, qname(A, "fillRect"))
-    sp_pr = ET.SubElement(pic, qname(PIC, "spPr"), {"bwMode": "auto"})
-    xfrm = ET.SubElement(sp_pr, qname(A, "xfrm"))
-    ET.SubElement(xfrm, qname(A, "off"), {"x": "0", "y": "0"})
-    ET.SubElement(xfrm, qname(A, "ext"), {"cx": str(width_emu), "cy": str(height_emu)})
-    ET.SubElement(sp_pr, qname(A, "prstGeom"), {"prst": "rect"})
-    return inline
+def make_drawing_xml(rel_id: str, doc_pr_id: int, width_emu: int,
+                     height_emu: int, title: str) -> bytes:
+    safe_title = escape(title, {'"': "&quot;"})
+    return f'''<w:drawing xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><wp:inline distT="0" distB="0" distL="0" distR="0">
+      <wp:extent cx="{width_emu}" cy="{height_emu}"/>
+      <wp:effectExtent l="0" t="0" r="0" b="0"/>
+      <wp:docPr id="{doc_pr_id}" name="{safe_title}" descr="{safe_title}"/>
+      <wp:cNvGraphicFramePr><a:graphicFrameLocks noChangeAspect="1"/></wp:cNvGraphicFramePr>
+      <a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
+        <pic:pic><pic:nvPicPr>
+          <pic:cNvPr id="{doc_pr_id}" name="{safe_title}"/>
+          <pic:cNvPicPr><a:picLocks noChangeAspect="1" noChangeArrowheads="1"/></pic:cNvPicPr>
+        </pic:nvPicPr>
+        <pic:blipFill><a:blip r:embed="{rel_id}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>
+        <pic:spPr bwMode="auto"><a:xfrm><a:off x="0" y="0"/><a:ext cx="{width_emu}" cy="{height_emu}"/></a:xfrm>
+          <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
+        </pic:spPr>
+        </pic:pic>
+      </a:graphicData></a:graphic>
+    </wp:inline></w:drawing>'''.encode("utf-8")
 
 
-def replace_placeholder_table(table: ET.Element, drawing: ET.Element) -> None:
-    cell = table.find(f"./{qname(W, 'tr')}/{qname(W, 'tc')}")
-    if cell is None:
-        raise ValueError("В таблице-заполнителе отсутствует ячейка")
-    tc_pr = cell.find(qname(W, "tcPr"))
-    for child in list(cell):
-        if child is not tc_pr:
-            cell.remove(child)
-    paragraph = ET.SubElement(cell, qname(W, "p"))
-    paragraph_properties = ET.SubElement(paragraph, qname(W, "pPr"))
-    ET.SubElement(paragraph_properties, qname(W, "jc"), {qname(W, "val"): "center"})
-    run = ET.SubElement(paragraph, qname(W, "r"))
-    run.append(ET.Element(qname(W, "drawing")))
-    run.find(qname(W, "drawing")).append(drawing)
+def replace_placeholder_table_xml(table: bytes, drawing: bytes) -> bytes:
+    cell_start = table.find(b"<w:tc>")
+    tc_pr_end = table.find(b"</w:tcPr>", cell_start)
+    cell_end = table.find(b"</w:tc>", tc_pr_end)
+    if cell_start == -1 or tc_pr_end == -1 or cell_end == -1:
+        raise ValueError("В таблице-заполнителе отсутствует ячейка или её свойства")
+    paragraph = b'<w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r>' + drawing + b"</w:r></w:p>"
+    return table[:tc_pr_end + len(b"</w:tcPr>")] + paragraph + table[cell_end:]
 
 
 def update_docx(input_path: Path, output_path: Path, generated: list[tuple[str, Path, int, int]]) -> None:
     with ZipFile(input_path, "r") as archive:
         members = {name: archive.read(name) for name in archive.namelist()}
 
-    document_root = ET.fromstring(members["word/document.xml"])
-    rels_root = ET.fromstring(members["word/_rels/document.xml.rels"])
-    content_types_root = ET.fromstring(members["[Content_Types].xml"])
-
-    rel_number = next_relationship_id(rels_root)
+    document_xml = members["word/document.xml"]
+    rels_xml = members["word/_rels/document.xml.rels"]
+    rel_ids = [int(value) for value in re.findall(rb'Id="rId(\d+)"', rels_xml)]
+    rel_number = max(rel_ids, default=0) + 1
     media_number = next_media_number(list(members))
-    doc_pr_ids = [int(value) for value in document_root.findall(f".//{qname(WP, 'docPr')}") for value in [value.attrib.get("id", "0")] if value.isdigit()]
+    doc_pr_ids = [int(value) for value in re.findall(rb'<wp:docPr[^>]*\bid="(\d+)"', document_xml)]
     doc_pr_number = max(doc_pr_ids, default=0) + 1
     width_emu = 5_709_285
 
-    default_png = any(node.attrib.get("Extension") == "png" for node in content_types_root)
-    if not default_png:
-        ET.SubElement(content_types_root, qname(CT, "Default"), {"Extension": "png", "ContentType": "image/png"})
-
-    body = document_root.find(qname(W, "body"))
-    if body is None:
-        raise ValueError("В документе не найдено тело документа")
-    direct_tables = body.findall(qname(W, "tbl"))
     for label, image_path, pixel_width, pixel_height in generated:
-        matching = [table for table in direct_tables if label in element_text(table)]
-        if len(matching) != 1:
-            raise ValueError(f"Ожидалась одна таблица-заполнитель для {label}, найдено: {len(matching)}")
+        marker = f"[ МЕСТО ДЛЯ ВСТАВКИ ИЛЛЮСТРАЦИИ: {label} ]".encode("utf-8")
+        marker_position = document_xml.find(marker)
+        if marker_position == -1:
+            raise ValueError(f"Не найден placeholder для {label}")
+        table_start = document_xml.rfind(b"<w:tbl>", 0, marker_position)
+        table_close = document_xml.find(b"</w:tbl>", marker_position)
+        if table_start == -1 or table_close == -1:
+            raise ValueError(f"Не найдена таблица placeholder для {label}")
+        table_close += len(b"</w:tbl>")
         relationship_id = f"rId{rel_number}"
         media_name = f"word/media/image{media_number}.png"
-        ET.SubElement(rels_root, qname(PKG_REL, "Relationship"), {
-            "Id": relationship_id,
-            "Type": "http://schemas.openxmlformats.org/officeDocument/2006/relationships/image",
-            "Target": f"media/image{media_number}.png",
-        })
+        relationship = (
+            f'<Relationship Id="{relationship_id}" '
+            'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" '
+            f'Target="media/image{media_number}.png"/>'
+        ).encode("utf-8")
+        rels_close = rels_xml.find(b"</Relationships>")
+        if rels_close == -1:
+            raise ValueError("Не найден конец word/_rels/document.xml.rels")
+        rels_xml = rels_xml[:rels_close] + relationship + rels_xml[rels_close:]
         image_height_emu = round(width_emu * pixel_height / pixel_width)
-        drawing = make_drawing(relationship_id, doc_pr_number, width_emu, image_height_emu, label)
-        replace_placeholder_table(matching[0], drawing)
+        drawing = make_drawing_xml(relationship_id, doc_pr_number, width_emu, image_height_emu, label)
+        table = document_xml[table_start:table_close]
+        document_xml = document_xml[:table_start] + replace_placeholder_table_xml(table, drawing) + document_xml[table_close:]
         members[media_name] = image_path.read_bytes()
         rel_number += 1
         media_number += 1
         doc_pr_number += 1
-
-    ET.register_namespace("w", W)
-    ET.register_namespace("a", A)
-    ET.register_namespace("wp", WP)
-    ET.register_namespace("pic", PIC)
-    ET.register_namespace("r", R)
-    ET.register_namespace("pr", PKG_REL)
-    ET.register_namespace("ct", CT)
-    members["word/document.xml"] = ET.tostring(document_root, encoding="utf-8", xml_declaration=True)
-    members["word/_rels/document.xml.rels"] = ET.tostring(rels_root, encoding="utf-8", xml_declaration=True)
-    members["[Content_Types].xml"] = ET.tostring(content_types_root, encoding="utf-8", xml_declaration=True)
+    members["word/document.xml"] = document_xml
+    members["word/_rels/document.xml.rels"] = rels_xml
 
     temporary_output = output_path.with_suffix(output_path.suffix + ".tmp")
     with ZipFile(temporary_output, "w", ZIP_DEFLATED) as archive:
