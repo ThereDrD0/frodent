@@ -1,0 +1,95 @@
+services:
+  db:
+    image: postgres:16.6-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-ryadom}
+      POSTGRES_USER: ${POSTGRES_ADMIN_USER:-ryadom_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      APP_DB_USER: ${POSTGRES_USER:-ryadom}
+      APP_DB_PASSWORD: ${POSTGRES_APP_PASSWORD:?Set POSTGRES_APP_PASSWORD in .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/postgres-init.sh:/docker-entrypoint-initdb.d/10-create-app-user.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+
+  migrate:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment: &api_environment
+      DATABASE_URL: postgresql://${POSTGRES_USER:-ryadom}:${POSTGRES_APP_PASSWORD}@db:5432/${POSTGRES_DB:-ryadom}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      PUBLIC_APP_URL: ${PUBLIC_APP_URL:-http://127.0.0.1:${APP_PORT:-4173}}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://127.0.0.1:${APP_PORT:-4173},http://localhost:${APP_PORT:-4173}}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_SETUP_TOKEN: ${ADMIN_SETUP_TOKEN:-}
+      FILE_ROOT: /var/lib/ryadom/board-files
+    command: ["python", "-m", "ryadom_backend.migrate_cli"]
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+    security_opt:
+      - no-new-privileges:true
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment: *api_environment
+    volumes:
+      - board_files:/var/lib/ryadom/board-files
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready',timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+  web:
+    image: node:22.15.0-alpine
+    user: "1000:1000"
+    working_dir: /app
+    command: ["node", "scripts/serve.mjs"]
+    environment:
+      PORT: 4173
+      HOST: 0.0.0.0
+      BACKEND_HOST: api
+      BACKEND_PORT: 8000
+    volumes:
+      - ./index.html:/app/index.html:ro
+      - ./src:/app/src:ro
+      - ./assets:/app/assets:ro
+      - ./scripts:/app/scripts:ro
+    ports:
+      - "127.0.0.1:${APP_PORT:-4173}:4173"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  postgres_data:
+  board_files:

@@ -1,0 +1,25 @@
+[project]
+name = "ryadom-board-api"
+version = "0.1.0"
+description = "Локальный API доски Рядом"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi==0.120.3",
+  "psycopg[binary,pool]==3.2.12",
+  "python-multipart==0.0.20",
+  "uvicorn==0.38.0",
+  "websockets==15.0.1",
+]
+
+[dependency-groups]
+dev = [
+  "httpx==0.28.1",
+  "pytest==8.4.2",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.uv]
+package = false
