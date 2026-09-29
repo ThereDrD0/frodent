@@ -103,21 +103,73 @@ try {
   await page.waitForFunction(count => document.querySelectorAll('#objects .object').length === count, beforeImport * 2); await saved(page);
   assert.equal(await page.locator('img[alt="drawing.png"]').count(), 2);
   await page.route('**/api/v1/users/login', route => route.fulfill({ json: { status: 'Success', data: { access_token: 'fixture-access-token' } } }));
-  let serverContent;
-  await page.route('**/api/v1/notes', async route => {
+  const serverBoardId = 'b53c8fca-83bc-4db0-a8d3-757a536852cb';
+  const serverAttachmentId = 'c53c8fca-83bc-4db0-a8d3-757a536852cb';
+  const remotePng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a6N8AAAAASUVORK5CYII=', 'base64');
+  const uploadedFiles = [], savedOperations = [];
+  await page.route('**/api/v1/boards', async route => {
+    assert.equal(route.request().method(), 'POST');
     assert.equal(route.request().headers().authorization, 'Bearer fixture-access-token');
-    const body = route.request().postDataJSON(); serverContent = body.content;
-    assert.ok(JSON.parse(serverContent).objects.every(o => !o.blobId));
-    await route.fulfill({ status: 201, json: { status: 'Success', data: { id: 42 } } });
+    assert.ok(route.request().postDataJSON().title);
+    await route.fulfill({ status: 201, json: { status: 'Success', data: { id: serverBoardId, title: 'Снимок' } } });
+  });
+  await page.route(`**/api/v1/boards/${serverBoardId}/attachments`, async route => {
+    const request = route.request(), headers = request.headers(), bytes = request.postDataBuffer();
+    assert.equal(headers.authorization, 'Bearer fixture-access-token');
+    assert.match(headers['idempotency-key'], /^[0-9a-f-]{36}$/i);
+    assert.match(headers['content-type'], /^multipart\/form-data; boundary=/);
+    assert.ok(bytes?.length > 10);
+    const id = `attachment-${uploadedFiles.length}`;
+    uploadedFiles.push({ id, bytes });
+    await route.fulfill({ status: 201, json: { status: 'Success', data: { id, originalName: 'drawing.png', mime: 'image/png', size: bytes.length, sha256: '0'.repeat(64), downloadUrl: `/api/v1/boards/${serverBoardId}/attachments/${id}` } } });
+  });
+  await page.route(`**/api/v1/boards/${serverBoardId}/operations`, async route => {
+    const request = route.request(); assert.equal(request.headers().authorization, 'Bearer fixture-access-token');
+    const operation = request.postDataJSON();
+    assert.equal(operation.action, 'create'); assert.equal(operation.object.id, operation.objectId);
+    assert.equal('blobId' in operation.object, false);
+    savedOperations.push(operation);
+    await route.fulfill({ json: { status: 'Success', data: { opId: operation.opId, serverSeq: savedOperations.length, object: operation.object } } });
   });
   await page.locator('[data-action="share"]').click();
-  await page.locator('#email').fill('fixture@example.test'); await page.locator('#password').fill('fixture'); await page.locator('#server-login button').click();
+  await page.locator('#email').fill('fixture@example.test'); await page.locator('#password').fill('fixture'); await page.locator('#server-login button[type="submit"]').click();
   await page.locator('[data-action="server-save"]').click();
-  await page.waitForFunction(() => document.querySelector('#server-error').textContent.includes('#42'));
-  assert.ok(serverContent);
+  await page.waitForFunction(id => document.querySelector('#server-error').textContent.includes(id), serverBoardId);
+  assert.equal(uploadedFiles.length, 6);
+  assert.ok(savedOperations.some(item => item.object.type === 'stroke' && item.object.points.length > 1));
+  assert.ok(savedOperations.some(item => item.object.asset === 'landscape'));
+  assert.equal(savedOperations.filter(item => item.object.attachmentId).length, 6);
+  await page.route(`**/api/v1/boards/${serverBoardId}`, async route => {
+    assert.equal(route.request().headers().authorization, 'Bearer fixture-access-token');
+    await route.fulfill({ json: { status: 'Success', data: {
+      id: serverBoardId, title: 'Восстановленная доска', role: 'owner', serverSeq: 1,
+      objects: [{ id: 'd53c8fca-83bc-4db0-a8d3-757a536852cb', type: 'image', x: 0, y: 0, w: 80, h: 60, text: 'server-copy.png', color: 'mint', attachmentId: serverAttachmentId, revision: 1, deleted: false, created: 1 }],
+      attachments: [{ id: serverAttachmentId, originalName: 'server-copy.png', mime: 'image/png', size: remotePng.length, sha256: '0'.repeat(64), downloadUrl: `/api/v1/boards/${serverBoardId}/attachments/${serverAttachmentId}` }]
+    } } });
+  });
+  await page.route(`**/api/v1/boards/${serverBoardId}/attachments/${serverAttachmentId}`, route => route.fulfill({ contentType: 'image/png', body: remotePng }));
+  await page.locator('#snapshot-id').fill(serverBoardId);
+  await page.locator('#server-load button[type="submit"]').click();
+  await page.waitForFunction(() => document.querySelector('img[alt="server-copy.png"]')?.naturalWidth > 0);
+  await saved(page);
   assert.equal(await page.evaluate(() => JSON.stringify({ ...localStorage, ...sessionStorage }).includes('fixture-access-token')), false);
+  await page.locator('[data-action="share"]').click();
+  await page.route('**/api/v1/auth/logout', async route => {
+    assert.equal(route.request().headers().authorization, 'Bearer fixture-access-token');
+    await route.fulfill({ json: { status: 'Success', data: { loggedOut: true } } });
+  });
+  await page.locator('[data-action="logout"]').click();
+  await page.locator('[data-action="register-mode"]').click();
+  assert.equal(await page.locator('#display-name').isVisible(), true);
+  await page.route('**/api/v1/users/register', async route => {
+    assert.equal(route.request().postDataJSON().displayName, 'Тестовый участник');
+    await route.fulfill({ status: 201, json: { status: 'Success', data: { access_token: 'registration-fixture-token' } } });
+  });
+  await page.locator('#email').fill('new@example.test'); await page.locator('#password').fill('fixture-password'); await page.locator('#display-name').fill('Тестовый участник');
+  await page.locator('#server-login button[type="submit"]').click();
+  await page.waitForSelector('[data-action="server-save"]');
   await page.keyboard.press('Escape');
-  console.log('PASS: resize, reversible deletion, zoom, full backup with 3 files, non-destructive import and existing API snapshot/login contract. Native download manager is not tested.');
+  console.log('PASS: resize, reversible deletion, zoom, local backup/import, Python board snapshot with drawings and 6 uploaded files, restored server image, login/register/logout. Native download manager is not tested.');
   for (const width of [320, 390, 768, 1440]) { await page.setViewportSize({ width, height: 900 }); assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true); }
   await page.setViewportSize({ width: 390, height: 844 }); await page.locator('[data-action="fit"]').click();
   await page.screenshot({ path: 'test-results/board-mobile-light.png' });

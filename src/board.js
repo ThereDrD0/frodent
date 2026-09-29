@@ -375,11 +375,11 @@ async function exportBoard() {
   }
   download(new Blob([JSON.stringify(data)], { type: 'application/json' }), `${data.title || 'Доска'}.ryadom`);
 }
-async function importBoard(data) {
+async function importBoard(data, externalBlobs = new Map(), externalNames = new Map()) {
   const parsed = parseSnapshot(data), p = center(), imported = parsed.objects.filter(o => !o.deleted);
   if (active().length + imported.length > 1000) throw new Error('После импорта на доске будет больше 1000 объектов.');
   const minX = Math.min(...imported.map(o => o.x)), minY = Math.min(...imported.map(o => o.y));
-  const blobs = new Map();
+  const blobs = new Map(externalBlobs);
   for (const file of parsed.files || []) {
     if (typeof file.id !== 'string' || typeof file.data !== 'string' || !/^data:[^;,]*;base64,[a-zA-Z0-9+/=]*$/.test(file.data) || file.data.length > MAX_FILE * 1.4) throw new Error('Недопустимое вложение в файле доски.');
     const [header, content] = file.data.split(',');
@@ -389,7 +389,7 @@ async function importBoard(data) {
   const prepared = [];
   for (const original of imported) {
     const blob = blobs.get(original.blobId), id = crypto.randomUUID();
-    if (blob) fileKind(new File([blob], original.text, { type: blob.type }));
+    if (blob) fileKind(new File([blob], externalNames.get(original.blobId) || original.text, { type: blob.type }));
     const object = { ...original, id, revision: 0, created: Date.now(), x: p.x + original.x - minX, y: p.y + original.y - minY };
     delete object.blobId;
     if (blob) object.blobId = crypto.randomUUID();
@@ -407,16 +407,34 @@ $('#import-input').addEventListener('change', async event => {
 
 function showDialog(type = 'share') {
   finishEdit();
-  const content = type === 'help' ? `<h2 id="dialog-title">Больше места для идей</h2><p>V — выделение, H или Пробел — перемещение. N — стикер, T — текст, P — карандаш, R — прямоугольник.</p><p>Двойной клик редактирует текст или скачивает вложение. Delete удаляет выбранное. Ctrl/⌘+Z отменяет, Ctrl/⌘+Shift+Z повторяет. Стрелки перемещают выбранный объект.</p><p>Колесо перемещает доску. Ctrl/⌘ + колесо меняет масштаб. На сенсорном экране потяните свободное место или используйте два пальца.</p><p>Перетащите файлы, вставьте Ctrl/⌘+V или нажмите загрузку. До 10 файлов за раз, 20 МБ на файл. PDF и Office хранятся как вложения, без встроенного редактора.</p><p class="info-box">Данные хранятся в этом браузере. Скачивайте доску для резервной копии: файл .ryadom включает вложения до 35 МБ суммарно. Старые заметки не удалены.</p>` : `<h2 id="dialog-title">Думать вместе</h2><p>Откройте эту страницу в другой вкладке того же браузера: рисуйте и пишите параллельно, следите за курсорами.</p><p class="info-box">Это локальная синхронизация вкладок. Совместная работа между устройствами и передача файлов другим людям ждут доработки C++-сервера.</p><hr><h3>Снимки на C++-сервере</h3><p>Существующий API хранит доску как новую заметку. Каждый снимок — отдельная копия без файлов; он не заменяет чужие изменения.</p>${backend.authenticated() ? '<div class="dialog-actions"><button class="text-button" data-action="logout">Выйти</button><button class="filled-button" data-action="server-save">Сохранить новый снимок</button></div><form id="server-load"><label for="snapshot-id">ID снимка для добавления на доску</label><input id="snapshot-id" inputmode="numeric" pattern="[0-9]+" required><div class="dialog-actions"><button class="text-button" type="submit">Добавить снимок</button></div></form>' : '<form id="server-login"><label for="email">Email</label><input id="email" type="email" autocomplete="username" required><label for="password">Пароль</label><input id="password" type="password" autocomplete="current-password" required><div class="dialog-actions"><button class="filled-button" type="submit">Войти на сервер</button></div></form>'}<div class="dialog-error" id="server-error" role="alert"></div>`;
+  const content = type === 'help' ? `<h2 id="dialog-title">Больше места для идей</h2><p>V — выделение, H или Пробел — перемещение. N — стикер, T — текст, P — карандаш, R — прямоугольник.</p><p>Двойной клик редактирует текст или скачивает вложение. Delete удаляет выбранное. Ctrl/⌘+Z отменяет, Ctrl/⌘+Shift+Z повторяет. Стрелки перемещают выбранный объект.</p><p>Колесо перемещает доску. Ctrl/⌘ + колесо меняет масштаб. На сенсорном экране потяните свободное место или используйте два пальца.</p><p>Перетащите файлы, вставьте Ctrl/⌘+V или нажмите загрузку. До 10 файлов за раз, 20 МБ на файл. PDF и Office хранятся как вложения, без встроенного редактора.</p><p class="info-box">Данные хранятся в этом браузере. Скачивайте доску для резервной копии: файл .ryadom включает вложения до 35 МБ суммарно. Старые заметки не удалены.</p>` : `<h2 id="dialog-title">Думать вместе</h2><p>Откройте эту страницу в другой вкладке того же браузера: рисуйте и пишите параллельно, следите за курсорами.</p><p class="info-box">Локальная синхронизация работает между вкладками этого браузера. Python API сохраняет серверные снимки вместе с оригиналами вложений. Совместное редактирование между устройствами пока не подключено.</p><hr><h3>Снимки на сервере</h3><p>Снимок создаёт отдельную копию объектов и файлов, не меняя текущую доску.</p>${backend.authenticated() ? '<div class="dialog-actions"><button class="text-button" data-action="logout">Выйти</button><button class="filled-button" data-action="server-save">Сохранить новый снимок</button></div><form id="server-load"><label for="snapshot-id">Числовой ID старого снимка или UUID серверной доски</label><input id="snapshot-id" maxlength="36" required><div class="dialog-actions"><button class="text-button" type="submit">Добавить снимок</button></div></form>' : '<form id="server-login" data-mode="login"><label for="email">Email</label><input id="email" type="email" autocomplete="username" required><label id="display-name-label" for="display-name" hidden>Имя</label><input id="display-name" name="displayName" autocomplete="name" maxlength="80" hidden><label id="admin-token-label" for="admin-setup-token" hidden>Код администратора</label><input id="admin-setup-token" name="adminSetupToken" autocomplete="off" hidden><label for="password">Пароль</label><input id="password" type="password" autocomplete="current-password" required><div class="dialog-actions"><button id="server-auth-submit" class="filled-button" type="submit">Войти на сервер</button><button class="text-button" data-action="register-mode" type="button">Создать аккаунт</button></div></form>'}<div class="dialog-error" id="server-error" role="alert"></div>`;
   $('#dialog-content').innerHTML = `${content}<div class="dialog-actions"><button class="text-button" data-action="close-dialog">Закрыть</button></div>`;
   if (!$('#dialog').open) $('#dialog').showModal();
   $('#server-login')?.addEventListener('submit', async event => {
     event.preventDefault(); const button = event.submitter; button.disabled = true;
-    try { await backend.login($('#email').value, $('#password').value); showDialog(); } catch (error) { $('#server-error').textContent = error.message; } finally { button.disabled = false; }
+    try {
+      if (event.currentTarget.dataset.mode === 'register') await backend.register($('#email').value, $('#password').value, $('#display-name').value, $('#admin-setup-token').value);
+      else await backend.login($('#email').value, $('#password').value);
+      showDialog();
+    } catch (error) { $('#server-error').textContent = error.message; } finally { button.disabled = false; }
   });
   $('#server-load')?.addEventListener('submit', async event => {
     event.preventDefault(); event.submitter.disabled = true;
-    try { const note = await backend.loadSnapshot($('#snapshot-id').value); await importBoard(note.content); $('#dialog').close(); } catch (error) { $('#server-error').textContent = error.message; } finally { event.submitter.disabled = false; }
+    try {
+      const snapshot = await backend.loadSnapshot($('#snapshot-id').value);
+      if (snapshot.kind === 'legacy') await importBoard(snapshot.content);
+      else {
+        const data = {
+          format: 'ryadom-board', version: 1, title: snapshot.board.title,
+          objects: snapshot.board.objects.map(source => {
+            const { attachmentId, originalName, mime, size, sha256, downloadUrl, ...object } = source;
+            return { ...object, revision: 0, deleted: false, ...(attachmentId ? { blobId: attachmentId } : {}) };
+          }), files: []
+        };
+        await importBoard(JSON.stringify(data), snapshot.files, snapshot.names);
+      }
+      $('#dialog').close();
+    } catch (error) { $('#server-error').textContent = error.message; } finally { event.submitter.disabled = false; }
   });
 }
 document.addEventListener('click', async event => {
@@ -431,6 +449,15 @@ document.addEventListener('click', async event => {
     else if (action === 'import') $('#import-input').click();
     else if (action === 'export') await exportBoard();
     else if (action === 'share' || action === 'help') showDialog(action);
+    else if (action === 'register-mode') {
+      const form = $('#server-login'); const registering = form.dataset.mode !== 'register';
+      form.dataset.mode = registering ? 'register' : 'login';
+      $('#display-name-label').hidden = !registering; $('#display-name').hidden = !registering; $('#display-name').required = registering;
+      $('#admin-token-label').hidden = !registering; $('#admin-setup-token').hidden = !registering;
+      $('#password').minLength = registering ? 10 : 1;
+      $('#server-auth-submit').textContent = registering ? 'Создать аккаунт' : 'Войти на сервер';
+      button.textContent = registering ? 'Уже есть аккаунт' : 'Создать аккаунт'; $('#server-error').textContent = '';
+    }
     else if (action === 'close-dialog') $('#dialog').close();
     else if (action === 'edit') await activate(selected);
     else if (action === 'delete') { finishEdit(); change({ deleted: true }); }
@@ -439,11 +466,11 @@ document.addEventListener('click', async event => {
     else if (action === 'fit') fit();
     else if (['zoom-in', 'zoom-out', 'reset-zoom'].includes(action)) setCamera(zoomAt(camera, action === 'reset-zoom' ? 1 : camera.zoom * (action === 'zoom-in' ? 1.2 : 1 / 1.2), { x: innerWidth / 2, y: innerHeight / 2 }));
     else if (action === 'theme') { const theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'; document.documentElement.dataset.theme = theme; try { localStorage.setItem('ryadom.theme', theme); } catch {} }
-    else if (action === 'logout') { backend.logout(); showDialog(); }
+    else if (action === 'logout') { await backend.logout(); showDialog(); }
     else if (action === 'server-save') {
       button.disabled = true; await queue;
-      const note = await backend.saveSnapshot(snapshot($('#board-title').value, active()));
-      $('#server-error').textContent = `Создан снимок #${note.id}. Файлы остаются в браузере.`;
+      const result = await backend.saveSnapshot({ format: 'ryadom-board', version: 1, title: $('#board-title').value, objects: active() }, readBlob, progress => { $('#server-error').textContent = progress; });
+      $('#server-error').textContent = `Создан серверный снимок ${result.id}: ${result.objects} объектов, ${result.files} вложений.`;
     }
   } catch (error) { if ($('#server-error') && $('#dialog').open) $('#server-error').textContent = error.message; else toast(error.message); }
   finally { if (action === 'server-save') button.disabled = false; }
