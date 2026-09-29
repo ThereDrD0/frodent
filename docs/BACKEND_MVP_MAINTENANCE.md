@@ -2,11 +2,11 @@
 
 ## When to use
 
-Read BACKEND_MVP.md before future board integration work. It supersedes the archived BACKEND_BOARD.md proposal; the runtime remains local-only until integration is implemented. Do not confuse requirements with shipped functionality.
+This file records maintenance decisions for an archived handoff. The production implementation is the standalone Python API under `backend/`; its deployed endpoints and current UI boundary are documented in `backend/README.md`. The existing editor remains local-first, so do not describe API support as full browser synchronization.
 
 ## Decisions
 
-Use the existing C++ identity system, separate PostgreSQL board tables, HTTP object operations and WebSocket notifications. A single API replica and persistent file volume are sufficient. Invite acceptance creates durable editor membership. Object revisions reject concurrent overwrites; character-level CRDT is outside MVP. PostgreSQL and uploaded originals, not IndexedDB, become authoritative after integration.
+Use separate PostgreSQL board tables, HTTP object operations and WebSocket notifications in the Python service. A single API replica and persistent file volume are sufficient. Invite acceptance creates durable editor membership. Object revisions reject concurrent overwrites; character-level CRDT is outside MVP. PostgreSQL and uploaded originals, not IndexedDB, become authoritative for server snapshots.
 
 ## Review checklist
 

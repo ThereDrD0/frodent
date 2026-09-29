@@ -63,3 +63,18 @@ Realtime collaboration is implemented only between tabs sharing the same Indexed
 The headless Vivaldi download manager does not emit the expected native download event. Tests validate the generated export Blob, original attachment content and re-import of the complete board; native download completion is not claimed. Clipboard tests use browser ClipboardEvent/DataTransfer; support for files copied from an OS file manager depends on what that browser exposes. Touch pinch and screen-reader behavior were not independently automated in this run; desktop pointer behavior and mobile layout were checked.
 
 No packages were installed, so nothing requires uninstallation. The local master history has more than the user's required 125 non-empty commits and no remote. Skill metadata and relative documentation links were checked locally; the optional Python validator remains unavailable without PyYAML.
+
+## Backend delivery addendum — 2026-09-29
+
+The standalone Python service is in `backend/`. It does not use the sibling C++ repository. `uv` resolved the pinned lock file into `backend/.venv`; no system Python packages were installed.
+
+Passed locally:
+
+- `cd backend && UV_CACHE_DIR=/tmp/ryadom-uv-cache uv run --locked --group dev python -m pytest`: **29 passed, 9 skipped**. Unit coverage includes models, six object types, asset validation, operation-number canonicalization, password/JWT/refresh primitives, storage signatures and atomic writes, realtime tickets/ephemeral events, request-size limits and OpenAPI. The nine skipped tests are PostgreSQL-backed account, board, attachment and admin scenarios because this machine has no test database.
+- `npm test`: **3 test files passed**, including the Python board client flow for registration, server board creation, multipart attachment upload, object operations and authenticated restore.
+- `node scripts/proxy-test.mjs`: **passed** with account, board, operation, multipart upload, idempotency header, WebSocket tunnel, CSP, origin rejection and unavailable-upstream checks.
+- `bash -n start-docker.sh scripts/test-backend.sh scripts/backup.sh scripts/restore.sh backend/postgres-init.sh`, Node syntax checks and `git diff --check`: **passed**.
+
+The full browser suite passed with the existing Vivaldi and Playwright installation. It now covers Python board snapshot creation, multipart uploads for six local drawing/document copies, object operations without `blobId`, authenticated server image restore, registration and logout. The test still does not claim a native headless download-manager event.
+
+Docker integration was not run: this host has Docker Engine 29.8.1 but no `docker compose` plugin, no `docker-compose` executable, and the current process cannot access `/var/run/docker.sock`. `scripts/test-backend.sh` remains the isolated PostgreSQL test entry point on a machine with Compose v2. No services, packages or external repositories were modified here.
