@@ -70,6 +70,7 @@ node scripts/board-test.mjs
 Сначала запустите фронтенд. Тест не ходит на внешние сайты и проверяет API на mocks. Скриншоты — в игнорируемой `test-results/`. Проверяется содержимое экспортного Blob; завершение нативного загрузчика headless Vivaldi не подтверждается.
 
 - [Результаты тестов](docs/TESTING.md).
+- [Описание для новичков в формате вики](docs/WIKI.md).
 - [Дизайн и локальные источники](docs/DESIGN.md).
 - [WebSocket JSON contract](docs/WEBSOCKET.md).
 - [English skill](.agents/skills/ryadom-frontend/SKILL.md).
