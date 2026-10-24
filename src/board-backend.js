@@ -77,7 +77,7 @@ function uploadName(object, blob) {
   return `attachment${mimeExtensions[blob.type] || '.bin'}`;
 }
 
-function objectPayload(object, id, attachments) {
+function objectPayload(object, id, attachments, ids) {
   const result = {
     id, type: object.type, x: object.x, y: object.y, w: object.w, h: object.h,
     text: object.text, color: object.color
@@ -87,6 +87,17 @@ function objectPayload(object, id, attachments) {
   if (object.type === 'text') {
     if (object.headline !== undefined) result.headline = object.headline;
     if (object.small !== undefined) result.small = object.small;
+  }
+  if (object.type === 'connector') {
+    if (object.fromId) result.fromId = ids?.get(object.fromId) || object.fromId;
+    if (object.toId) result.toId = ids?.get(object.toId) || object.toId;
+    if (object.fromSide) result.fromSide = object.fromSide;
+    if (object.toSide) result.toSide = object.toSide;
+    if (Number.isFinite(object.startX)) result.startX = object.startX;
+    if (Number.isFinite(object.startY)) result.startY = object.startY;
+    if (Number.isFinite(object.endX)) result.endX = object.endX;
+    if (Number.isFinite(object.endY)) result.endY = object.endY;
+    if (object.style) result.style = object.style;
   }
   if (object.asset) result.asset = object.asset;
   if (object.blobId) {
@@ -122,7 +133,7 @@ export async function saveSnapshot(data, readBlob, onProgress = () => {}) {
     const ids = new Map(data.objects.map(object => [object.id, crypto.randomUUID()]));
     for (let index = 0; index < data.objects.length; index++) {
       const object = data.objects[index], objectId = ids.get(object.id);
-      const payload = objectPayload(object, objectId, attachments);
+      const payload = objectPayload(object, objectId, attachments, ids);
       await request(`boards/${board.id}/operations`, {
         method: 'POST',
         body: JSON.stringify({ opId: crypto.randomUUID(), objectId, action: 'create', baseRevision: 0, object: payload }),

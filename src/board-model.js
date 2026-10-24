@@ -1,6 +1,8 @@
 export const BOARD_ID = 'workspace';
 export const COLORS = ['mint', 'blue', 'neutral'];
-export const TYPES = ['sticky', 'text', 'shape', 'stroke', 'image', 'file'];
+export const TYPES = ['sticky', 'text', 'shape', 'stroke', 'image', 'file', 'connector'];
+export const SIDES = ['top', 'right', 'bottom', 'left'];
+export const CONNECTOR_STYLES = ['curved', 'straight'];
 export const GRID_SIZE = 24;
 export const SHAPE_KINDS = ['rect', 'ellipse', 'diamond'];
 export function snapToGrid(value, step = GRID_SIZE) {
@@ -13,6 +15,7 @@ export const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 export function makeObject(type, x, y, extra = {}) {
   const base = { id: crypto.randomUUID(), type, x, y, w: 240, h: 180, text: '', color: 'mint', revision: 0, deleted: false, created: Date.now() };
   if (type === 'shape' && !extra.shapeKind) base.shapeKind = 'rect';
+  if (type === 'connector') base.style = extra.style || 'curved';
   return { ...base, ...extra };
 }
 export function validObject(o) {
@@ -22,7 +25,16 @@ export function validObject(o) {
     Number.isInteger(o.revision) && o.revision >= 0 && typeof o.deleted === 'boolean' && Number.isFinite(o.created) &&
     (o.blobId === undefined || (typeof o.blobId === 'string' && o.blobId.length < 100)) &&
     (o.type === 'shape' ? (o.shapeKind === undefined || SHAPE_KINDS.includes(o.shapeKind)) : o.shapeKind === undefined) &&
-    (o.type !== 'stroke' || (Array.isArray(o.points) && o.points.length <= 10000 && o.points.every(p => Array.isArray(p) && p.length === 2 && p.every(n => Number.isFinite(n) && Math.abs(n) <= 1000000))));
+    (o.type !== 'stroke' || (Array.isArray(o.points) && o.points.length <= 10000 && o.points.every(p => Array.isArray(p) && p.length === 2 && p.every(n => Number.isFinite(n) && Math.abs(n) <= 1000000)))) &&
+    (o.type === 'connector'
+      ? ((o.fromId == null || (typeof o.fromId === 'string' && o.fromId.length < 100)) &&
+         (o.toId == null || (typeof o.toId === 'string' && o.toId.length < 100)) &&
+         (o.fromSide == null || SIDES.includes(o.fromSide)) &&
+         (o.toSide == null || SIDES.includes(o.toSide)) &&
+         ['startX', 'startY', 'endX', 'endY'].every(k => o[k] == null || (Number.isFinite(o[k]) && Math.abs(o[k]) <= 1000000)) &&
+         (o.style == null || CONNECTOR_STYLES.includes(o.style)))
+      : (o.fromId == null && o.toId == null && o.fromSide == null && o.toSide == null &&
+         o.startX == null && o.startY == null && o.endX == null && o.endY == null && o.style == null));
 }
 export function worldPoint(screen, camera) { return { x: (screen.x - camera.x) / camera.zoom, y: (screen.y - camera.y) / camera.zoom }; }
 export function zoomAt(camera, next, point) {
@@ -67,4 +79,88 @@ export function initialObjects() {
     makeObject('stroke', 325, 220, { ...base, id: 'curve', w: 370, h: 58, color: 'mint', text: '', points: [[4,40],[40,28],[85,17],[135,12],[185,15],[235,24],[283,34],[340,38],[322,23],[340,38],[320,51]] }),
     makeObject('text', 120, 560, { ...base, id: 'hint', w: 520, h: 45, text: 'Двойной клик — редактировать. Перетащите файл — добавить.', small: true })
   ];
+}
+
+export function connectorAnchor(object, side) {
+  const cx = object.x + object.w / 2;
+  const cy = object.y + object.h / 2;
+  if (side === 'top') return { x: cx, y: object.y };
+  if (side === 'bottom') return { x: cx, y: object.y + object.h };
+  if (side === 'left') return { x: object.x, y: cy };
+  if (side === 'right') return { x: object.x + object.w, y: cy };
+  return { x: cx, y: cy };
+}
+
+export function closestSide(object, p) {
+  const distances = {
+    top: Math.hypot(p.x - (object.x + object.w / 2), p.y - object.y),
+    bottom: Math.hypot(p.x - (object.x + object.w / 2), p.y - (object.y + object.h)),
+    left: Math.hypot(p.x - object.x, p.y - (object.y + object.h / 2)),
+    right: Math.hypot(p.x - (object.x + object.w), p.y - (object.y + object.h / 2))
+  };
+  return Object.entries(distances).sort((a, b) => a[1] - b[1])[0][0];
+}
+
+export function connectorEndpoints(connector, getObject) {
+  const rawFrom = connector?.fromId && typeof getObject === 'function' ? getObject(connector.fromId) : null;
+  const fromObj = rawFrom && !rawFrom.deleted ? rawFrom : null;
+  const rawTo = connector?.toId && typeof getObject === 'function' ? getObject(connector.toId) : null;
+  const toObj = rawTo && !rawTo.deleted ? rawTo : null;
+
+  let start;
+  if (fromObj) {
+    start = connectorAnchor(fromObj, connector.fromSide);
+  } else if (Number.isFinite(connector?.startX) && Number.isFinite(connector?.startY)) {
+    start = { x: connector.startX, y: connector.startY };
+  } else {
+    start = { x: connector?.x ?? 0, y: connector?.y ?? 0 };
+  }
+
+  let end;
+  if (toObj) {
+    end = connectorAnchor(toObj, connector.toSide);
+  } else if (Number.isFinite(connector?.endX) && Number.isFinite(connector?.endY)) {
+    end = { x: connector.endX, y: connector.endY };
+  } else {
+    end = { x: (connector?.x ?? 0) + (connector?.w ?? 0), y: (connector?.y ?? 0) + (connector?.h ?? 0) };
+  }
+
+  return { start, end };
+}
+
+const SIDE_NORMALS = {
+  top: { x: 0, y: -1 },
+  bottom: { x: 0, y: 1 },
+  left: { x: -1, y: 0 },
+  right: { x: 1, y: 0 }
+};
+
+export function connectorPath(start, end, fromSide, toSide, style = 'curved') {
+  if (style === 'straight') {
+    const d = `M ${start.x} ${start.y} L ${end.x} ${end.y}`;
+    return {
+      path: d,
+      d,
+      midpoint: { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 }
+    };
+  }
+
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const dist = Math.hypot(dx, dy);
+
+  const n1 = SIDE_NORMALS[fromSide] || (Math.abs(dx) >= Math.abs(dy) ? { x: dx >= 0 ? 1 : -1, y: 0 } : { x: 0, y: dy >= 0 ? 1 : -1 });
+  const n2 = SIDE_NORMALS[toSide] || (Math.abs(dx) >= Math.abs(dy) ? { x: dx >= 0 ? -1 : 1, y: 0 } : { x: 0, y: dy >= 0 ? -1 : 1 });
+
+  const offset = Math.max(dist * 0.4, 24);
+  const c1 = { x: start.x + n1.x * offset, y: start.y + n1.y * offset };
+  const c2 = { x: end.x + n2.x * offset, y: end.y + n2.y * offset };
+
+  const d = `M ${start.x} ${start.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${end.x} ${end.y}`;
+  const midpoint = {
+    x: 0.125 * start.x + 0.375 * c1.x + 0.375 * c2.x + 0.125 * end.x,
+    y: 0.125 * start.y + 0.375 * c1.y + 0.375 * c2.y + 0.125 * end.y
+  };
+
+  return { path: d, d, midpoint, c1, c2 };
 }
