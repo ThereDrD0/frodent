@@ -674,6 +674,8 @@ def apply_operation(pool: ConnectionPool, board_id: uuid.UUID, user: dict, opera
                         allowed.update({"headline", "small"})
                     if current_row["type"] == "shape":
                         allowed.add("shapeKind")
+                    if current_row["type"] == "connector":
+                        allowed.update({"fromId", "toId", "fromSide", "toSide", "startX", "startY", "endX", "endY", "style"})
                     if not set(operation.patch or {}).issubset(allowed):
                         raise ApiError(422, "INVALID_PATCH", "patch содержит неизменяемое или неизвестное поле.")
                     merged = {"id": str(operation.object_id), "type": current_row["type"], **current_row["payload"], **(operation.patch or {})}

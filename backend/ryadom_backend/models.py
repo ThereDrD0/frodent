@@ -81,7 +81,7 @@ class AdminUserPatch(StrictModel):
 
 class ObjectDraft(StrictModel):
     id: UUID
-    type: Literal["sticky", "text", "shape", "stroke", "image", "file"]
+    type: Literal["sticky", "text", "shape", "stroke", "image", "file", "connector"]
     x: float
     y: float
     w: float
@@ -94,11 +94,20 @@ class ObjectDraft(StrictModel):
     small: bool | None = None
     attachment_id: UUID | None = Field(default=None, alias="attachmentId")
     asset: Literal["landscape"] | None = None
+    from_id: UUID | None = Field(default=None, alias="fromId")
+    to_id: UUID | None = Field(default=None, alias="toId")
+    from_side: Literal["top", "right", "bottom", "left"] | None = Field(default=None, alias="fromSide")
+    to_side: Literal["top", "right", "bottom", "left"] | None = Field(default=None, alias="toSide")
+    start_x: float | None = Field(default=None, alias="startX")
+    start_y: float | None = Field(default=None, alias="startY")
+    end_x: float | None = Field(default=None, alias="endX")
+    end_y: float | None = Field(default=None, alias="endY")
+    style: Literal["curved", "straight"] | None = None
 
-    @field_validator("x", "y")
+    @field_validator("x", "y", "start_x", "start_y", "end_x", "end_y")
     @classmethod
-    def position_limit(cls, value: float) -> float:
-        if not -1_000_000 <= value <= 1_000_000:
+    def position_limit(cls, value: float | None) -> float | None:
+        if value is not None and not -1_000_000 <= value <= 1_000_000:
             raise ValueError("Координата выходит за допустимые границы.")
         return value
 
@@ -140,6 +149,14 @@ class ObjectDraft(StrictModel):
             raise ValueError("asset допустим только у изображения.")
         if self.type != "text" and (self.headline is not None or self.small is not None):
             raise ValueError("headline и small допустимы только у текстового объекта.")
+        if self.type == "connector":
+            if self.style is None:
+                self.style = "curved"
+            if any(v is not None for v in (self.points, self.headline, self.small, self.attachment_id, self.asset, self.shape_kind)):
+                raise ValueError("Поля других типов недопустимы у коннектора.")
+        else:
+            if any(v is not None for v in (self.from_id, self.to_id, self.from_side, self.to_side, self.start_x, self.start_y, self.end_x, self.end_y, self.style)):
+                raise ValueError("Поля связи допустимы только у объекта типа connector.")
         return self
 
 

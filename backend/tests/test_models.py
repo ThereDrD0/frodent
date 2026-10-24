@@ -31,7 +31,7 @@ def test_board_title_and_password_limits():
 
 
 def test_all_six_object_types_and_specific_fields():
-    for kind in ("sticky", "text", "shape", "stroke", "image", "file"):
+    for kind in ("sticky", "text", "shape", "stroke", "image", "file", "connector"):
         extra = {"points": [[0, 0], [1, 1]]} if kind == "stroke" else {}
         if kind in ("image", "file"):
             extra["attachmentId"] = str(uuid4())
@@ -39,6 +39,55 @@ def test_all_six_object_types_and_specific_fields():
         assert actual_kind == kind
         assert payload["x"] == 12
         assert attachment is not None if kind in ("image", "file") else attachment is None
+        if kind == "connector":
+            assert payload["style"] == "curved"
+
+
+def test_connector_validation_and_rejected_fields():
+    from_id = str(uuid4())
+    to_id = str(uuid4())
+    payload, kind, attachment = validated_object(object_payload(
+        "connector",
+        fromId=from_id,
+        toId=to_id,
+        fromSide="right",
+        toSide="left",
+        startX=10.5,
+        startY=20.0,
+        endX=100.0,
+        endY=200.0,
+        style="straight",
+    ))
+    assert kind == "connector"
+    assert payload["fromId"] == from_id
+    assert payload["toId"] == to_id
+    assert payload["fromSide"] == "right"
+    assert payload["toSide"] == "left"
+    assert payload["startX"] == 10.5
+    assert payload["style"] == "straight"
+
+    with pytest.raises(ValidationError):
+        ObjectDraft.model_validate(object_payload("connector", points=[[0, 0], [1, 1]]))
+    with pytest.raises(ValidationError):
+        ObjectDraft.model_validate(object_payload("connector", shapeKind="rect"))
+    with pytest.raises(ValidationError):
+        ObjectDraft.model_validate(object_payload("connector", headline=True))
+    with pytest.raises(ValidationError):
+        ObjectDraft.model_validate(object_payload("connector", attachmentId=str(uuid4())))
+
+    with pytest.raises(ValidationError):
+        ObjectDraft.model_validate(object_payload("sticky", fromId=from_id))
+    with pytest.raises(ValidationError):
+        ObjectDraft.model_validate(object_payload("text", style="curved"))
+    with pytest.raises(ValidationError):
+        ObjectDraft.model_validate(object_payload("shape", startX=10))
+
+    with pytest.raises(ValidationError):
+        ObjectDraft.model_validate(object_payload("connector", fromSide="diagonal"))
+    with pytest.raises(ValidationError):
+        ObjectDraft.model_validate(object_payload("connector", style="zigzag"))
+    with pytest.raises(ValidationError):
+        ObjectDraft.model_validate(object_payload("connector", startX=2_000_000))
 
 
 def test_image_assets_are_explicit_and_operation_hash_numbers_are_stable():
