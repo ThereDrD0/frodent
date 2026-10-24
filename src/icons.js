@@ -5,6 +5,8 @@ const paths = {
   text: '<path d="M4 5h16M12 5v15M8 20h8"/>',
   pen: '<path d="m4 16 12-12 4 4L8 20H4zM13 7l4 4"/>',
   square: '<rect x="4" y="4" width="16" height="16" rx="3"/>',
+  circle: '<circle cx="12" cy="12" r="8"/>',
+  diamond: '<path d="M12 3 21 12 12 21 3 12Z"/>',
   upload: '<path d="M12 16V3m-5 5 5-5 5 5M4 15v6h16v-6"/>',
   people: '<circle cx="9" cy="7" r="3"/><path d="M3 21v-3a6 6 0 0 1 12 0v3M16 4a3 3 0 0 1 0 6M18 13a5 5 0 0 1 3 5v3"/>',
   spark: '<path d="m12 3 2 7 7 2-7 2-2 7-2-7-7-2 7-2z"/>',
