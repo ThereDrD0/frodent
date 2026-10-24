@@ -54,6 +54,48 @@ export function commitObject(object, expectedRevision, blob) {
     tx.onabort = () => reject(tx.error || new Error('Не удалось сохранить объект.'));
   });
 }
+export function commitBatch(items) {
+  if (!items || items.length === 0) return Promise.resolve({ saved: [] });
+  const ids = new Set(items.map(i => i.object?.id));
+  if (ids.size !== items.length) {
+    return Promise.reject(new Error('Пакет содержит повторяющиеся идентификаторы объектов.'));
+  }
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(['objects', 'files'], 'readwrite');
+    const store = tx.objectStore('objects');
+    const files = tx.objectStore('files');
+    const conflicts = [], prepared = [];
+    let pending = items.length, aborted = false;
+    items.forEach(({ object, expectedRevision, blob }, index) => {
+      store.get(object.id).onsuccess = event => {
+        if (aborted) return;
+        const actual = event.target.result;
+        if ((actual?.revision || 0) !== expectedRevision) {
+          conflicts.push({ id: object.id, expected: expectedRevision, actual });
+        } else {
+          const saved = { ...object, revision: expectedRevision + 1 };
+          if (!validObject(saved)) { aborted = true; tx.abort(); return; }
+          prepared[index] = { saved, blob };
+        }
+        if (--pending === 0) {
+          if (conflicts.length > 0) {
+            aborted = true; tx.abort();
+          } else {
+            for (const p of prepared) {
+              if (p.blob && p.saved.blobId) files.put(p.blob, p.saved.blobId);
+              store.put(p.saved);
+            }
+          }
+        }
+      };
+    });
+    tx.oncomplete = () => resolve({ saved: prepared.map(p => p.saved) });
+    tx.onabort = () => {
+      if (conflicts.length > 0) resolve({ conflicts });
+      else reject(tx.error || new Error('Не удалось сохранить пакет объектов.'));
+    };
+  });
+}
 export function readValue(store, key) {
   return new Promise((resolve, reject) => {
     const request = db.transaction(store).objectStore(store).get(key);
