@@ -37,9 +37,51 @@ svg { display: block; }
 .neutral { background: var(--secondary-container); }
 #board { position: fixed; inset: 0; overflow: clip; touch-action: none; outline: none; background-image: radial-gradient(circle, var(--outline-variant) .75px, transparent .9px); background-size: 24px 24px; }
 #board[data-tool=hand] { cursor: grab; }
-#board[data-tool=pen], #board[data-tool=shape], #board[data-tool=sticky], #board[data-tool=text] { cursor: crosshair; }
+#board[data-tool=pen], #board[data-tool=shape], #board[data-tool=sticky], #board[data-tool=text], #board[data-tool=connector] { cursor: crosshair; }
 #board.dragging { cursor: grabbing; }
 #world { position: absolute; transform-origin: 0 0; width: 1px; height: 1px; will-change: transform; }
+#connectors-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+.connector {
+  pointer-events: none;
+  color: var(--primary);
+}
+.connector[data-color=blue] { color: var(--tertiary); }
+.connector[data-color=neutral] { color: var(--on-surface); }
+.connector-hitbox {
+  pointer-events: stroke;
+  cursor: pointer;
+}
+.connector-line {
+  pointer-events: none;
+  transition: stroke .15s ease, stroke-width .15s ease;
+}
+.connector.selected .connector-line {
+  stroke-width: 3.5;
+  filter: drop-shadow(0 0 4px color-mix(in srgb, currentColor 70%, transparent));
+}
+.connector-label-group {
+  pointer-events: all;
+  cursor: pointer;
+}
+.connector-label-bg {
+  fill: var(--surface-container-high);
+  stroke: var(--outline-variant);
+  stroke-width: 1;
+}
+.connector-label-text {
+  fill: var(--on-surface);
+  font-size: 13px;
+  font-weight: 500;
+  user-select: none;
+}
+.connector-styles { display: inline-flex; align-items: center; gap: 4px; }
 .object { position: absolute; user-select: none; touch-action: none; outline: 2px solid transparent; outline-offset: 5px; border-radius: 3px; }
 .object.selected { outline-color: var(--primary); }
 .object:focus-visible { outline-color: var(--primary); }

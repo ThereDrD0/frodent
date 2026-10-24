@@ -12,7 +12,7 @@
   <script type="module" src="src/board.js"></script>
 </head>
 <body>
-  <main id="board" aria-label="Доска идей" tabindex="0"><div id="world"><div id="objects"></div><div id="ghosts" aria-hidden="true"></div></div><div id="cursors" aria-hidden="true"></div></main>
+  <main id="board" aria-label="Доска идей" tabindex="0"><div id="world"><svg id="connectors-layer" aria-hidden="true"></svg><div id="objects"></div><div id="ghosts" aria-hidden="true"></div></div><div id="cursors" aria-hidden="true"></div></main>
   <header class="board-header surface">
     <img src="assets/logo.svg" width="34" height="34" alt="Рядом">
     <div class="board-name"><input id="board-title" maxlength="180" value="Пространство идей" aria-label="Название доски"><span id="save-status" role="status">Открываем доску…</span></div>
@@ -33,6 +33,7 @@
     <button class="tool" data-tool="text" aria-label="Текст" title="Текст · T" aria-pressed="false"><span data-icon="text"></span></button>
     <button class="tool" data-tool="pen" aria-label="Карандаш" title="Карандаш · P" aria-pressed="false"><span data-icon="pen"></span></button>
     <button class="tool" data-tool="shape" aria-label="Прямоугольник" title="Прямоугольник · R" aria-pressed="false"><span data-icon="square"></span></button>
+    <button class="tool" data-tool="connector" aria-label="Стрелка" title="Стрелка · C" aria-pressed="false"><span data-icon="arrow"></span></button>
     <span class="tool-divider"></span>
     <button class="tool" data-action="files" aria-label="Добавить файлы" title="Изображения и документы"><span data-icon="upload"></span></button>
   </nav>
@@ -41,6 +42,11 @@
     <button class="swatch blue" data-color="blue" title="Голубой" aria-label="Голубой"></button>
     <button class="swatch neutral" data-color="neutral" title="Нейтральный" aria-label="Нейтральный"></button>
     <span class="divider"></span>
+    <div id="connector-styles" class="connector-styles" hidden>
+      <button class="icon-button" data-connector-style="curved" title="Кривая стрелка" aria-label="Кривая стрелка" aria-pressed="true"><span data-icon="curve"></span></button>
+      <button class="icon-button" data-connector-style="straight" title="Прямая стрелка" aria-label="Прямая стрелка" aria-pressed="false"><span data-icon="straight"></span></button>
+      <span class="divider"></span>
+    </div>
     <div id="shape-kinds" class="shape-kinds" hidden>
       <button class="icon-button" data-shape-kind="rect" title="Прямоугольник" aria-label="Прямоугольник" aria-pressed="true"><span data-icon="square"></span></button>
       <button class="icon-button" data-shape-kind="ellipse" title="Эллипс" aria-label="Эллипс" aria-pressed="false"><span data-icon="circle"></span></button>
