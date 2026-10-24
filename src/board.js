@@ -1,5 +1,5 @@
 import { icon, hydrateIcons } from './icons.js';
-import { makeObject, validObject, fitCamera, worldPoint, zoomAt, normalizeStroke, snapshot, parseSnapshot, GRID_SIZE, snapToGrid, snapPoint, SHAPE_KINDS } from './board-model.js';
+import { makeObject, validObject, fitCamera, worldPoint, zoomAt, normalizeStroke, snapshot, parseSnapshot, GRID_SIZE, snapToGrid, snapPoint, SHAPE_KINDS, connectorAnchor, connectorEndpoints, connectorPath, SIDES, CONNECTOR_STYLES, closestSide } from './board-model.js';
 import { openBoard, initialize, allObjects, commitObject, readValue, writeMeta } from './board-storage.js';
 import { fileKind, humanSize, imageSize, download, MAX_FILE } from './board-files.js';
 import * as backend from './board-backend.js';
@@ -11,7 +11,7 @@ const objects = new Map(), elements = new Map(), urls = new Map(), peers = new M
 const unsavedFiles = new Map();
 const readBlob = id => unsavedFiles.has(id) ? Promise.resolve(unsavedFiles.get(id)) : readValue('files', id);
 const actor = crypto.randomUUID(), channel = 'BroadcastChannel' in window ? new BroadcastChannel('ryadom-board-v1') : null;
-let camera = { x: 0, y: 0, zoom: 1 }, selected, tool = 'select', color = 'mint', currentShapeKind = 'rect', gesture, editing, space = false, ready = false;
+let camera = { x: 0, y: 0, zoom: 1 }, selected, tool = 'select', color = 'mint', currentShapeKind = 'rect', currentConnectorStyle = 'curved', gesture, editing, space = false, ready = false;
 let queue = Promise.resolve(), pending = 0, failure = false, toastTimer, lastBroadcast = 0;
 const history = [], future = [], pointers = new Map();
 let pinch;
@@ -49,7 +49,7 @@ function fit() { setCamera(fitCamera(active(), innerWidth, innerHeight)); }
 function setTool(next) {
   finishEdit(); tool = next; board.dataset.tool = tool;
   $$('button[data-tool]').forEach(button => { button.classList.toggle('active', button.dataset.tool === tool); button.setAttribute('aria-pressed', String(button.dataset.tool === tool)); });
-  const hints = { select: 'Место, где мысли встречаются', hand: 'Потяните полотно, чтобы переместиться', sticky: 'Нажмите на доску, чтобы оставить мысль', text: 'Нажмите на доску, чтобы написать', pen: 'Рисуйте свободно. Пробел — переместить доску', shape: 'Потяните, чтобы нарисовать прямоугольник' };
+  const hints = { select: 'Место, где мысли встречаются', hand: 'Потяните полотно, чтобы переместиться', sticky: 'Нажмите на доску, чтобы оставить мысль', text: 'Нажмите на доску, чтобы написать', pen: 'Рисуйте свободно. Пробел — переместить доску', shape: 'Потяните, чтобы нарисовать прямоугольник', connector: 'Потяните от одного объекта к другому, чтобы создать связь' };
   $('#tool-hint').textContent = hints[tool];
   if (next !== 'select') select(null);
 }
@@ -69,14 +69,149 @@ function select(id) {
       });
     }
   }
+  const connectorStyles = $('#connector-styles');
+  if (connectorStyles) {
+    const isConnector = current()?.type === 'connector';
+    connectorStyles.hidden = !isConnector;
+    if (isConnector) {
+      const activeStyle = current()?.style || 'curved';
+      $$('#connector-styles button[data-connector-style]').forEach(btn => {
+        btn.setAttribute('aria-pressed', String(btn.dataset.connectorStyle === activeStyle));
+      });
+    }
+  }
+}
+
+function ensureConnectorMarkers() {
+  const layer = $('#connectors-layer');
+  if (!layer || layer.querySelector('defs')) return;
+  const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+  const colors = {
+    mint: 'var(--primary)',
+    blue: 'var(--tertiary)',
+    neutral: 'var(--on-surface)'
+  };
+  for (const [col, fill] of Object.entries(colors)) {
+    const marker = document.createElementNS(defs.namespaceURI, 'marker');
+    marker.setAttribute('id', `arrowhead-${col}`);
+    marker.setAttribute('viewBox', '0 0 10 10');
+    marker.setAttribute('refX', '8');
+    marker.setAttribute('refY', '5');
+    marker.setAttribute('markerWidth', '6');
+    marker.setAttribute('markerHeight', '6');
+    marker.setAttribute('orient', 'auto-start-reverse');
+    const path = document.createElementNS(defs.namespaceURI, 'path');
+    path.setAttribute('d', 'M 0 1.5 L 8 5 L 0 8.5 z');
+    path.setAttribute('fill', fill);
+    marker.append(path);
+    defs.append(marker);
+  }
+  layer.prepend(defs);
+}
+
+function renderConnector(object, ghost = false, liveResolver = null) {
+  if (!ghost && object.deleted) {
+    elements.get(object.id)?.remove();
+    elements.delete(object.id);
+    if (selected === object.id) select(null);
+    return null;
+  }
+  const layer = $('#connectors-layer');
+  if (!layer) return null;
+  ensureConnectorMarkers();
+
+  let element = ghost ? layer.querySelector(`.connector.ghost[data-id="${object.id}"]`) : elements.get(object.id);
+  if (!element) {
+    element = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    element.setAttribute('class', 'connector');
+    element.setAttribute('role', 'group');
+    if (!ghost) {
+      element.tabIndex = 0;
+      elements.set(object.id, element);
+    }
+    layer.append(element);
+  }
+  element.dataset.id = object.id;
+  element.dataset.color = object.color;
+  element.dataset.type = 'connector';
+  element.classList.toggle('selected', !ghost && selected === object.id);
+  if (ghost) element.classList.add('ghost');
+
+  const resolveObject = liveResolver || (id => (gesture?.next && gesture.next.id === id ? gesture.next : objects.get(id)));
+  const endpoints = connectorEndpoints(object, resolveObject);
+  const path = connectorPath(endpoints.start, endpoints.end, object.fromSide, object.toSide, object.style || 'curved');
+
+  element.replaceChildren();
+
+  const hitbox = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  hitbox.setAttribute('class', 'connector-hitbox');
+  hitbox.setAttribute('d', path.d);
+  hitbox.setAttribute('fill', 'none');
+  hitbox.setAttribute('stroke', 'transparent');
+  hitbox.setAttribute('stroke-width', '20');
+  hitbox.setAttribute('pointer-events', 'stroke');
+
+  const line = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  line.setAttribute('class', 'connector-line');
+  line.setAttribute('d', path.d);
+  line.setAttribute('fill', 'none');
+  line.setAttribute('stroke', 'currentColor');
+  line.setAttribute('stroke-width', '2.5');
+  line.setAttribute('stroke-linecap', 'round');
+  line.setAttribute('marker-end', `url(#arrowhead-${object.color || 'mint'})`);
+
+  element.append(hitbox, line);
+
+  if (object.text) {
+    const textGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    textGroup.setAttribute('class', 'connector-label-group');
+
+    const textWidth = Math.max(48, Math.round(object.text.length * 8) + 24);
+    const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    bg.setAttribute('class', 'connector-label-bg');
+    bg.setAttribute('x', String(path.midpoint.x - textWidth / 2));
+    bg.setAttribute('y', String(path.midpoint.y - 12));
+    bg.setAttribute('width', String(textWidth));
+    bg.setAttribute('height', '24');
+    bg.setAttribute('rx', '12');
+
+    const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    text.setAttribute('class', 'connector-label-text');
+    text.setAttribute('x', String(path.midpoint.x));
+    text.setAttribute('y', String(path.midpoint.y));
+    text.setAttribute('text-anchor', 'middle');
+    text.setAttribute('dominant-baseline', 'central');
+    text.textContent = object.text;
+
+    textGroup.append(bg, text);
+    element.append(textGroup);
+  }
+
+  return element;
 }
 
 function positionElement(element, object) {
   element.style.left = `${object.x}px`; element.style.top = `${object.y}px`;
   element.style.width = `${object.w}px`; element.style.height = `${object.h}px`;
+  for (const conn of active()) {
+    if (conn.type === 'connector' && (conn.fromId === object.id || conn.toId === object.id)) {
+      renderConnector(conn);
+    }
+  }
 }
 function renderObject(object, ghost = false) {
-  if (!ghost && object.deleted) { elements.get(object.id)?.remove(); elements.delete(object.id); if (selected === object.id) select(null); return; }
+  if (object.type === 'connector') return renderConnector(object, ghost);
+  if (!ghost && object.deleted) {
+    elements.get(object.id)?.remove();
+    elements.delete(object.id);
+    if (selected === object.id) select(null);
+    for (const conn of active()) {
+      if (conn.type === 'connector' && (conn.fromId === object.id || conn.toId === object.id)) {
+        renderConnector(conn);
+      }
+    }
+    return;
+  }
   let element = ghost ? null : elements.get(object.id);
   if (!element) {
     element = document.createElement('div'); element.className = 'object';
@@ -132,7 +267,7 @@ function renderObject(object, ghost = false) {
       svg.append(polygon); element.append(svg);
     }
   }
-  if (!ghost && object.type !== 'stroke') {
+  if (!ghost && !['stroke', 'connector'].includes(object.type)) {
     const handle = document.createElement('button'); handle.className = 'resize-handle'; handle.dataset.resize = 'true'; handle.setAttribute('aria-label', 'Изменить размер объекта'); handle.title = 'Потяните для изменения размера'; element.append(handle);
   }
   return element;
@@ -240,20 +375,39 @@ function undo(redo = false) {
   });
 }
 
-function preview(object) { $('#ghosts').replaceChildren(); const element = renderObject(object, true); element.classList.add('ghost'); $('#ghosts').append(element); broadcastPreview(object); }
+function preview(object) {
+  $('#ghosts').replaceChildren();
+  $('#connectors-layer .ghost')?.remove();
+  const element = renderObject(object, true);
+  element.classList.add('ghost');
+  if (object.type !== 'connector') $('#ghosts').append(element);
+  broadcastPreview(object);
+}
 function broadcastPreview(object) {
   if (performance.now() - lastBroadcast < 40) return;
   lastBroadcast = performance.now(); send({ type: 'preview', object });
 }
 function finishGesture(cancel = false) {
-  const g = gesture; gesture = null; board.classList.remove('dragging'); $('#ghosts').replaceChildren(); send({ type: 'preview-end' });
+  const g = gesture; gesture = null; board.classList.remove('dragging');
+  $('#ghosts').replaceChildren();
+  $('#connectors-layer .ghost')?.remove();
+  send({ type: 'preview-end' });
   if (!g || g.type === 'pan') return;
   if (g.type === 'move' || g.type === 'resize') {
     if (cancel) { renderObject(g.before); return; }
     if (g.moved) enqueue(async () => { if (!(await save(g.next, g.before))) toast('Объект изменён в другой вкладке. Перемещение отменено.'); });
   } else if (!cancel && g.type === 'pen' && g.points.length > 1) {
     add(makeObject('stroke', 0, 0, { ...normalizeStroke(g.points), color }));
-  } else if (!cancel && g.type === 'shape' && g.next?.w > 8 && g.next?.h > 8) add(g.next);
+  } else if (!cancel && g.type === 'shape' && g.next?.w > 8 && g.next?.h > 8) {
+    add(g.next);
+  } else if (!cancel && g.type === 'connector' && g.next) {
+    const dist = Math.hypot((g.next.endX ?? g.next.x) - (g.next.startX ?? g.next.x), (g.next.endY ?? g.next.y) - (g.next.startY ?? g.next.y));
+    if (g.next.toId || dist > 15) {
+      add(g.next);
+      setTool('select');
+      select(g.next.id);
+    }
+  }
 }
 board.addEventListener('pointerdown', event => {
   if (!ready || event.button > 1 || $('#dialog').open) return;
@@ -274,6 +428,23 @@ board.addEventListener('pointerdown', event => {
     const type = tool; setTool('select'); add(makeObject(type, p.x, p.y, { w: type === 'sticky' ? 240 : 300, h: type === 'sticky' ? 180 : 65, color }), undefined, true);
   } else if (tool === 'pen') gesture = { type: 'pen', points: [[p.x, p.y]] };
   else if (tool === 'shape') gesture = { type: 'shape', x: p.x, y: p.y, id: crypto.randomUUID() };
+  else if (tool === 'connector') {
+    const targetNode = event.target.closest('[data-id]');
+    let fromId = undefined, fromSide = undefined;
+    if (targetNode && objects.has(targetNode.dataset.id) && objects.get(targetNode.dataset.id).type !== 'connector') {
+      const obj = objects.get(targetNode.dataset.id);
+      fromId = obj.id;
+      fromSide = closestSide(obj, p);
+    }
+    gesture = {
+      type: 'connector',
+      fromId,
+      fromSide,
+      startX: p.x,
+      startY: p.y,
+      id: crypto.randomUUID()
+    };
+  }
 });
 board.addEventListener('pointermove', event => {
   const p = point(event);
@@ -291,9 +462,16 @@ board.addEventListener('pointermove', event => {
     const rawY = g.before.y + p.y - g.y;
     const nextX = event.altKey ? rawX : snapToGrid(rawX);
     const nextY = event.altKey ? rawY : snapToGrid(rawY);
-    g.next = { ...g.before, x: nextX, y: nextY };
+    if (g.before.type === 'connector') {
+      const dx = nextX - g.before.x, dy = nextY - g.before.y;
+      g.next = { ...g.before, x: nextX, y: nextY, startX: (g.before.startX ?? g.before.x) + dx, startY: (g.before.startY ?? g.before.y) + dy, endX: (g.before.endX ?? (g.before.x + g.before.w)) + dx, endY: (g.before.endY ?? (g.before.y + g.before.h)) + dy };
+      renderConnector(g.next);
+    } else {
+      g.next = { ...g.before, x: nextX, y: nextY };
+      positionElement(elements.get(g.before.id), g.next);
+    }
     g.moved = Math.hypot(p.x - g.x, p.y - g.y) > 2;
-    positionElement(elements.get(g.before.id), g.next); broadcastPreview(g.next);
+    broadcastPreview(g.next);
   } else if (g.type === 'resize') {
     const rawW = Math.max(GRID_SIZE, g.before.w + p.x - g.x);
     const rawH = g.before.type === 'image' ? rawW * g.before.h / g.before.w : Math.max(GRID_SIZE, g.before.h + p.y - g.y);
@@ -312,6 +490,27 @@ board.addEventListener('pointermove', event => {
     const snapW = event.altKey ? rawW : Math.max(GRID_SIZE, snapToGrid(rawW));
     const snapH = event.altKey ? rawH : Math.max(GRID_SIZE, snapToGrid(rawH));
     g.next = makeObject('shape', snapX, snapY, { id: g.id, w: snapW, h: snapH, color, shapeKind: currentShapeKind }); preview(g.next);
+  } else if (g.type === 'connector') {
+    const hovered = document.elementFromPoint(event.clientX, event.clientY)?.closest('[data-id]');
+    let toId = undefined, toSide = undefined;
+    if (hovered && objects.has(hovered.dataset.id) && hovered.dataset.id !== g.fromId && objects.get(hovered.dataset.id).type !== 'connector') {
+      const obj = objects.get(hovered.dataset.id);
+      toId = obj.id;
+      toSide = closestSide(obj, p);
+    }
+    const start = g.fromId ? connectorAnchor(objects.get(g.fromId), g.fromSide) : { x: g.startX, y: g.startY };
+    const end = toId ? connectorAnchor(objects.get(toId), toSide) : p;
+    const minX = Math.min(start.x, end.x), minY = Math.min(start.y, end.y);
+    const w = Math.max(1, Math.abs(end.x - start.x)), h = Math.max(1, Math.abs(end.y - start.y));
+    g.next = makeObject('connector', minX, minY, {
+      id: g.id, w, h, color,
+      fromId: g.fromId, fromSide: g.fromSide,
+      toId, toSide,
+      startX: g.startX, startY: g.startY,
+      endX: p.x, endY: p.y,
+      style: currentConnectorStyle || 'curved'
+    });
+    preview(g.next);
   }
 });
 board.addEventListener('pointerup', event => { pointers.delete(event.pointerId); if (pinch) { if (pointers.size < 2) pinch = null; return; } finishGesture(); });
@@ -326,6 +525,12 @@ board.addEventListener('wheel', event => {
 async function activate(id) {
   const object = objects.get(id); if (!object) return;
   if (['text', 'sticky'].includes(object.type)) beginEdit(id);
+  else if (object.type === 'connector') {
+    const nextText = prompt('Подпись к стрелке:', object.text || '');
+    if (nextText !== null && nextText !== object.text) {
+      change({ text: nextText.slice(0, 200) });
+    }
+  }
   else if (object.blobId) {
     const blob = await readBlob(object.blobId);
     if (blob) download(blob, object.text); else toast('Оригинал вложения отсутствует.');
@@ -392,9 +597,15 @@ if (channel) channel.onmessage = async ({ data }) => {
   if (data.type === 'cursor') peers.set(data.actor, { seen: Date.now(), x: data.x, y: data.y });
   if (data.type === 'preview' && validObject(data.object)) {
     document.getElementById(`peer-${data.actor}`)?.remove();
-    const node = renderObject(data.object, true); node.id = `peer-${data.actor}`; node.classList.add('ghost'); $('#world').append(node);
+    $('#connectors-layer .peer-preview')?.remove();
+    const node = renderObject(data.object, true); node.id = `peer-${data.actor}`; node.classList.add('ghost');
+    if (data.object.type === 'connector') node.classList.add('peer-preview');
+    else $('#world').append(node);
   }
-  if (data.type === 'preview-end') document.getElementById(`peer-${data.actor}`)?.remove();
+  if (data.type === 'preview-end') {
+    document.getElementById(`peer-${data.actor}`)?.remove();
+    $('#connectors-layer .peer-preview')?.remove();
+  }
   drawPeers();
 };
 setInterval(() => { if (ready) { send({ type: 'present' }); drawPeers(); } }, 4000);
@@ -424,11 +635,28 @@ async function importBoard(data, externalBlobs = new Map(), externalNames = new 
     const bytes = Uint8Array.from(atob(content), c => c.charCodeAt(0));
     blobs.set(file.id, new Blob([bytes], { type: header.slice(5, -7) }));
   }
+  const idMap = new Map(imported.map(o => [o.id, crypto.randomUUID()]));
+  const dx = p.x - minX, dy = p.y - minY;
   const prepared = [];
   for (const original of imported) {
-    const blob = blobs.get(original.blobId), id = crypto.randomUUID();
+    const blob = blobs.get(original.blobId), id = idMap.get(original.id);
     if (blob) fileKind(new File([blob], externalNames.get(original.blobId) || original.text, { type: blob.type }));
-    const object = { ...original, id, revision: 0, created: Date.now(), x: p.x + original.x - minX, y: p.y + original.y - minY };
+    const object = {
+      ...original,
+      id,
+      revision: 0,
+      created: Date.now(),
+      x: original.x + dx,
+      y: original.y + dy,
+      ...(original.type === 'connector' ? {
+        fromId: original.fromId ? (idMap.get(original.fromId) || original.fromId) : undefined,
+        toId: original.toId ? (idMap.get(original.toId) || original.toId) : undefined,
+        startX: Number.isFinite(original.startX) ? original.startX + dx : undefined,
+        startY: Number.isFinite(original.startY) ? original.startY + dy : undefined,
+        endX: Number.isFinite(original.endX) ? original.endX + dx : undefined,
+        endY: Number.isFinite(original.endY) ? original.endY + dy : undefined
+      } : {})
+    };
     delete object.blobId;
     if (blob) object.blobId = crypto.randomUUID();
     if (!validObject(object)) throw new Error('Импорт выходит за допустимые размеры доски.');
@@ -445,7 +673,7 @@ $('#import-input').addEventListener('change', async event => {
 
 function showDialog(type = 'share') {
   finishEdit();
-  const content = type === 'help' ? `<h2 id="dialog-title">Больше места для идей</h2><p>V — выделение, H или Пробел — перемещение. N — стикер, T — текст, P — карандаш, R — прямоугольник.</p><p>Двойной клик редактирует текст или скачивает вложение. Delete удаляет выбранное. Ctrl/⌘+Z отменяет, Ctrl/⌘+Shift+Z повторяет. Стрелки перемещают выбранный объект.</p><p>Колесо перемещает доску. Ctrl/⌘ + колесо меняет масштаб. На сенсорном экране потяните свободное место или используйте два пальца.</p><p>Перетащите файлы, вставьте Ctrl/⌘+V или нажмите загрузку. До 10 файлов за раз, 20 МБ на файл. PDF и Office хранятся как вложения, без встроенного редактора.</p><p class="info-box">Данные хранятся в этом браузере. Скачивайте доску для резервной копии: файл .ryadom включает вложения до 35 МБ суммарно. Старые заметки не удалены.</p>` : `<h2 id="dialog-title">Думать вместе</h2><p>Откройте эту страницу в другой вкладке того же браузера: рисуйте и пишите параллельно, следите за курсорами.</p><p class="info-box">Локальная синхронизация работает между вкладками этого браузера. Python API сохраняет серверные снимки вместе с оригиналами вложений. Совместное редактирование между устройствами пока не подключено.</p><hr><h3>Снимки на сервере</h3><p>Снимок создаёт отдельную копию объектов и файлов, не меняя текущую доску.</p>${backend.authenticated() ? '<div class="dialog-actions"><button class="text-button" data-action="logout">Выйти</button><button class="filled-button" data-action="server-save">Сохранить новый снимок</button></div><form id="server-load"><label for="snapshot-id">Числовой ID старого снимка или UUID серверной доски</label><input id="snapshot-id" maxlength="36" required><div class="dialog-actions"><button class="text-button" type="submit">Добавить снимок</button></div></form>' : '<form id="server-login" data-mode="login"><label for="email">Email</label><input id="email" type="email" autocomplete="username" required><label id="display-name-label" for="display-name" hidden>Имя</label><input id="display-name" name="displayName" autocomplete="name" maxlength="80" hidden><label id="admin-token-label" for="admin-setup-token" hidden>Код администратора</label><input id="admin-setup-token" name="adminSetupToken" autocomplete="off" hidden><label for="password">Пароль</label><input id="password" type="password" autocomplete="current-password" required><div class="dialog-actions"><button id="server-auth-submit" class="filled-button" type="submit">Войти на сервер</button><button class="text-button" data-action="register-mode" type="button">Создать аккаунт</button></div></form>'}<div class="dialog-error" id="server-error" role="alert"></div>`;
+  const content = type === 'help' ? `<h2 id="dialog-title">Больше места для идей</h2><p>V — выделение, H или Пробел — перемещение. N — стикер, T — текст, P — карандаш, R — прямоугольник, C — стрелка.</p><p>Двойной клик редактирует текст или скачивает вложение. Delete удаляет выбранное. Ctrl/⌘+Z отменяет, Ctrl/⌘+Shift+Z повторяет. Стрелки перемещают выбранный объект.</p><p>Колесо перемещает доску. Ctrl/⌘ + колесо меняет масштаб. На сенсорном экране потяните свободное место или используйте два пальца.</p><p>Перетащите файлы, вставьте Ctrl/⌘+V или нажмите загрузку. До 10 файлов за раз, 20 МБ на файл. PDF и Office хранятся как вложения, без встроенного редактора.</p><p class="info-box">Данные хранятся в этом браузере. Скачивайте доску для резервной копии: файл .ryadom включает вложения до 35 МБ суммарно. Старые заметки не удалены.</p>` : `<h2 id="dialog-title">Думать вместе</h2><p>Откройте эту страницу в другой вкладке того же браузера: рисуйте и пишите параллельно, следите за курсорами.</p><p class="info-box">Локальная синхронизация работает между вкладками этого браузера. Python API сохраняет серверные снимки вместе с оригиналами вложений. Совместное редактирование между устройствами пока не подключено.</p><hr><h3>Снимки на сервере</h3><p>Снимок создаёт отдельную копию объектов и файлов, не меняя текущую доску.</p>${backend.authenticated() ? '<div class="dialog-actions"><button class="text-button" data-action="logout">Выйти</button><button class="filled-button" data-action="server-save">Сохранить новый снимок</button></div><form id="server-load"><label for="snapshot-id">Числовой ID старого снимка или UUID серверной доски</label><input id="snapshot-id" maxlength="36" required><div class="dialog-actions"><button class="text-button" type="submit">Добавить снимок</button></div></form>' : '<form id="server-login" data-mode="login"><label for="email">Email</label><input id="email" type="email" autocomplete="username" required><label id="display-name-label" for="display-name" hidden>Имя</label><input id="display-name" name="displayName" autocomplete="name" maxlength="80" hidden><label id="admin-token-label" for="admin-setup-token" hidden>Код администратора</label><input id="admin-setup-token" name="adminSetupToken" autocomplete="off" hidden><label for="password">Пароль</label><input id="password" type="password" autocomplete="current-password" required><div class="dialog-actions"><button id="server-auth-submit" class="filled-button" type="submit">Войти на сервер</button><button class="text-button" data-action="register-mode" type="button">Создать аккаунт</button></div></form>'}<div class="dialog-error" id="server-error" role="alert"></div>`;
   $('#dialog-content').innerHTML = `${content}<div class="dialog-actions"><button class="text-button" data-action="close-dialog">Закрыть</button></div>`;
   if (!$('#dialog').open) $('#dialog').showModal();
   $('#server-login')?.addEventListener('submit', async event => {
@@ -482,6 +710,12 @@ document.addEventListener('click', async event => {
   if (button.dataset.shapeKind) {
     currentShapeKind = button.dataset.shapeKind;
     if (current()?.type === 'shape') change({ shapeKind: currentShapeKind });
+    select(selected);
+    return;
+  }
+  if (button.dataset.connectorStyle) {
+    currentConnectorStyle = button.dataset.connectorStyle;
+    if (current()?.type === 'connector') change({ style: currentConnectorStyle });
     select(selected);
     return;
   }
@@ -529,7 +763,7 @@ document.addEventListener('keydown', event => {
   if ((event.ctrlKey || event.metaKey) && key === 'z') { event.preventDefault(); undo(event.shiftKey); return; }
   if (event.ctrlKey || event.metaKey || event.altKey) return;
   if (event.code === 'Space') { event.preventDefault(); space = true; board.style.cursor = 'grab'; }
-  const shortcuts = { v: 'select', h: 'hand', n: 'sticky', t: 'text', p: 'pen', r: 'shape' };
+  const shortcuts = { v: 'select', h: 'hand', n: 'sticky', t: 'text', p: 'pen', r: 'shape', c: 'connector', a: 'connector' };
   if (shortcuts[key]) setTool(shortcuts[key]);
   if (key === '1') fit();
   if (['delete', 'backspace'].includes(key) && current()) { event.preventDefault(); change({ deleted: true }); }
@@ -540,6 +774,10 @@ document.addEventListener('keydown', event => {
     const dx = event.key === 'ArrowRight' ? distance : event.key === 'ArrowLeft' ? -distance : 0;
     const dy = event.key === 'ArrowDown' ? distance : event.key === 'ArrowUp' ? -distance : 0;
     if (event.target.matches('[data-resize]')) change({ w: Math.max(80, current().w + dx), h: Math.max(50, current().h + dy) });
+    else if (current().type === 'connector') {
+      const c = current();
+      change({ x: c.x + dx, y: c.y + dy, startX: (c.startX ?? c.x) + dx, startY: (c.startY ?? c.y) + dy, endX: (c.endX ?? (c.x + c.w)) + dx, endY: (c.endY ?? (c.y + c.h)) + dy });
+    }
     else change({ x: current().x + dx, y: current().y + dy });
   }
 });
@@ -549,6 +787,7 @@ window.addEventListener('blur', () => { space = false; board.style.cursor = ''; 
 window.addEventListener('resize', () => { drawPeers(); });
 
 hydrateIcons();
+ensureConnectorMarkers();
 try { document.documentElement.dataset.theme = localStorage.getItem('ryadom.theme') === 'dark' ? 'dark' : 'light'; } catch {}
 try {
   await openBoard(); await initialize();
