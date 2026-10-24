@@ -83,6 +83,7 @@ function objectPayload(object, id, attachments) {
     text: object.text, color: object.color
   };
   if (object.type === 'stroke') result.points = object.points;
+  if (object.type === 'shape' && object.shapeKind) result.shapeKind = object.shapeKind;
   if (object.type === 'text') {
     if (object.headline !== undefined) result.headline = object.headline;
     if (object.small !== undefined) result.small = object.small;

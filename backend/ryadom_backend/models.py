@@ -89,6 +89,7 @@ class ObjectDraft(StrictModel):
     text: str = Field(max_length=20_000)
     color: Literal["mint", "blue", "neutral"]
     points: list[list[float]] | None = None
+    shape_kind: Literal["rect", "ellipse", "diamond"] | None = Field(default=None, alias="shapeKind")
     headline: bool | None = None
     small: bool | None = None
     attachment_id: UUID | None = Field(default=None, alias="attachmentId")
@@ -124,6 +125,11 @@ class ObjectDraft(StrictModel):
                 raise ValueError("Координаты штриха выходят за допустимые границы.")
         elif self.points is not None:
             raise ValueError("Точки допустимы только у штриха.")
+        if self.type == "shape":
+            if self.shape_kind is None:
+                self.shape_kind = "rect"
+        elif self.shape_kind is not None:
+            raise ValueError("shapeKind допустим только у объекта типа shape.")
         if self.type == "file" and self.attachment_id is None:
             raise ValueError("Для файла требуется attachmentId.")
         if self.type == "image" and ((self.attachment_id is None and self.asset is None) or (self.attachment_id is not None and self.asset is not None)):

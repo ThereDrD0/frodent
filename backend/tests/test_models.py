@@ -101,6 +101,20 @@ def test_http_request_body_limit_returns_413_before_route():
         assert response.json()["code"] == "REQUEST_TOO_LARGE"
 
 
+def test_shape_kinds_validation_and_defaults():
+    for kind in ("rect", "ellipse", "diamond"):
+        payload, obj_type, _ = validated_object(object_payload("shape", shapeKind=kind))
+        assert obj_type == "shape"
+        assert payload["shapeKind"] == kind
+
+    default_payload, obj_type, _ = validated_object(object_payload("shape"))
+    assert obj_type == "shape"
+    assert default_payload["shapeKind"] == "rect"
+
+    with pytest.raises(ValidationError):
+        ObjectDraft.model_validate(object_payload("sticky", shapeKind="rect"))
+
+
 def test_openapi_documents_the_frontend_and_board_routes():
     paths = api_app.openapi()["paths"]
     assert "/api/v1/users/login" in paths
