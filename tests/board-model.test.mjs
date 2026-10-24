@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { makeObject, validObject, initialObjects, worldPoint, zoomAt, fitCamera, normalizeStroke, snapshot, parseSnapshot } from '../src/board-model.js';
+import { makeObject, validObject, initialObjects, worldPoint, zoomAt, fitCamera, normalizeStroke, snapshot, parseSnapshot, GRID_SIZE, snapToGrid, snapPoint, SHAPE_KINDS } from '../src/board-model.js';
 import { fileKind, MAX_FILE } from '../src/board-files.js';
 
 test('Seed and newly created objects pass schema validation', () => {
@@ -47,4 +47,17 @@ test('Files accept common images and documents, reject active SVG and size overf
   assert.throws(() => fileKind({ name: 'active.svg', type: 'image/svg+xml', size: 100 }));
   assert.throws(() => fileKind({ name: 'large.pdf', size: MAX_FILE + 1 }));
   assert.throws(() => fileKind({ name: 'empty.txt', size: 0 }));
+});
+test('Grid snapping and shape kind validation', () => {
+  assert.equal(GRID_SIZE, 24);
+  assert.equal(snapToGrid(25), 24);
+  assert.equal(snapToGrid(35), 24);
+  assert.equal(snapToGrid(36), 48);
+  assert.deepEqual(snapPoint({ x: 25, y: 50 }), { x: 24, y: 48 });
+
+  for (const kind of ['rect', 'ellipse', 'diamond']) {
+    assert.ok(validObject(makeObject('shape', 0, 0, { shapeKind: kind })));
+  }
+  assert.equal(validObject(makeObject('shape', 0, 0, { shapeKind: 'hexagon' })), false);
+  assert.equal(validObject(makeObject('sticky', 0, 0, { shapeKind: 'rect' })), false);
 });

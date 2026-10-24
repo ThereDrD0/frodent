@@ -1,9 +1,19 @@
 export const BOARD_ID = 'workspace';
 export const COLORS = ['mint', 'blue', 'neutral'];
 export const TYPES = ['sticky', 'text', 'shape', 'stroke', 'image', 'file'];
+export const GRID_SIZE = 24;
+export const SHAPE_KINDS = ['rect', 'ellipse', 'diamond'];
+export function snapToGrid(value, step = GRID_SIZE) {
+  return Math.round(value / step) * step;
+}
+export function snapPoint(point, step = GRID_SIZE) {
+  return { x: snapToGrid(point.x, step), y: snapToGrid(point.y, step) };
+}
 export const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 export function makeObject(type, x, y, extra = {}) {
-  return { id: crypto.randomUUID(), type, x, y, w: 240, h: 180, text: '', color: 'mint', revision: 0, deleted: false, created: Date.now(), ...extra };
+  const base = { id: crypto.randomUUID(), type, x, y, w: 240, h: 180, text: '', color: 'mint', revision: 0, deleted: false, created: Date.now() };
+  if (type === 'shape' && !extra.shapeKind) base.shapeKind = 'rect';
+  return { ...base, ...extra };
 }
 export function validObject(o) {
   return !!o && typeof o.id === 'string' && o.id.length < 100 && TYPES.includes(o.type) &&
@@ -11,6 +21,7 @@ export function validObject(o) {
     typeof o.text === 'string' && o.text.length <= 20000 && COLORS.includes(o.color) &&
     Number.isInteger(o.revision) && o.revision >= 0 && typeof o.deleted === 'boolean' && Number.isFinite(o.created) &&
     (o.blobId === undefined || (typeof o.blobId === 'string' && o.blobId.length < 100)) &&
+    (o.type === 'shape' ? (o.shapeKind === undefined || SHAPE_KINDS.includes(o.shapeKind)) : o.shapeKind === undefined) &&
     (o.type !== 'stroke' || (Array.isArray(o.points) && o.points.length <= 10000 && o.points.every(p => Array.isArray(p) && p.length === 2 && p.every(n => Number.isFinite(n) && Math.abs(n) <= 1000000))));
 }
 export function worldPoint(screen, camera) { return { x: (screen.x - camera.x) / camera.zoom, y: (screen.y - camera.y) / camera.zoom }; }
