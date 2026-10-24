@@ -1,5 +1,5 @@
 import { icon, hydrateIcons } from './icons.js';
-import { makeObject, validObject, fitCamera, worldPoint, zoomAt, normalizeStroke, snapshot, parseSnapshot } from './board-model.js';
+import { makeObject, validObject, fitCamera, worldPoint, zoomAt, normalizeStroke, snapshot, parseSnapshot, GRID_SIZE, snapToGrid, snapPoint, SHAPE_KINDS } from './board-model.js';
 import { openBoard, initialize, allObjects, commitObject, readValue, writeMeta } from './board-storage.js';
 import { fileKind, humanSize, imageSize, download, MAX_FILE } from './board-files.js';
 import * as backend from './board-backend.js';
@@ -11,7 +11,7 @@ const objects = new Map(), elements = new Map(), urls = new Map(), peers = new M
 const unsavedFiles = new Map();
 const readBlob = id => unsavedFiles.has(id) ? Promise.resolve(unsavedFiles.get(id)) : readValue('files', id);
 const actor = crypto.randomUUID(), channel = 'BroadcastChannel' in window ? new BroadcastChannel('ryadom-board-v1') : null;
-let camera = { x: 0, y: 0, zoom: 1 }, selected, tool = 'select', color = 'mint', gesture, editing, space = false, ready = false;
+let camera = { x: 0, y: 0, zoom: 1 }, selected, tool = 'select', color = 'mint', currentShapeKind = 'rect', gesture, editing, space = false, ready = false;
 let queue = Promise.resolve(), pending = 0, failure = false, toastTimer, lastBroadcast = 0;
 const history = [], future = [], pointers = new Map();
 let pinch;
@@ -41,7 +41,7 @@ function setCamera(next) {
   camera = next;
   world.style.transform = `translate(${camera.x}px, ${camera.y}px) scale(${camera.zoom})`;
   board.style.backgroundPosition = `${camera.x}px ${camera.y}px`;
-  board.style.backgroundSize = `${24 * camera.zoom}px ${24 * camera.zoom}px`;
+  board.style.backgroundSize = `${GRID_SIZE * camera.zoom}px ${GRID_SIZE * camera.zoom}px`;
   $('#zoom').textContent = `${Math.round(camera.zoom * 100)}%`;
   drawPeers();
 }
@@ -58,6 +58,17 @@ function select(id) {
   for (const [key, element] of elements) element.classList.toggle('selected', key === id);
   $('#selection-tools').hidden = !current() || current().deleted || tool !== 'select';
   $$('button[data-color]').forEach(button => { button.hidden = ['image', 'file'].includes(current()?.type); button.setAttribute('aria-pressed', String(current()?.color === button.dataset.color)); });
+  const shapeKinds = $('#shape-kinds');
+  if (shapeKinds) {
+    const isShape = current()?.type === 'shape';
+    shapeKinds.hidden = !isShape;
+    if (isShape) {
+      const activeKind = current()?.shapeKind || 'rect';
+      $$('#shape-kinds button[data-shape-kind]').forEach(btn => {
+        btn.setAttribute('aria-pressed', String(btn.dataset.shapeKind === activeKind));
+      });
+    }
+  }
 }
 
 function positionElement(element, object) {
@@ -106,7 +117,21 @@ function renderObject(object, ghost = false) {
     const name = document.createElement('strong'); name.textContent = object.text;
     const detail = document.createElement('small'); detail.textContent = object.blobId ? `${humanSize(object.size || 0)} · Двойной клик — скачать` : 'Вложение не включено в снимок';
     info.append(name, detail); element.append(symbol, info); element.setAttribute('aria-label', `Документ: ${object.text}`);
-  } else element.setAttribute('aria-label', 'Прямоугольник');
+  } else {
+    const kind = object.shapeKind || 'rect';
+    element.dataset.shapeKind = kind;
+    const labels = { rect: 'Прямоугольник', ellipse: 'Эллипс', diamond: 'Ромб' };
+    element.setAttribute('aria-label', labels[kind] || 'Фигура');
+    if (kind === 'diamond') {
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('class', 'diamond-shape');
+      svg.setAttribute('viewBox', '0 0 100 100');
+      svg.setAttribute('preserveAspectRatio', 'none');
+      const polygon = document.createElementNS(svg.namespaceURI, 'polygon');
+      polygon.setAttribute('points', '50,1 99,50 50,99 1,50');
+      svg.append(polygon); element.append(svg);
+    }
+  }
   if (!ghost && object.type !== 'stroke') {
     const handle = document.createElement('button'); handle.className = 'resize-handle'; handle.dataset.resize = 'true'; handle.setAttribute('aria-label', 'Изменить размер объекта'); handle.title = 'Потяните для изменения размера'; element.append(handle);
   }
@@ -262,18 +287,31 @@ board.addEventListener('pointermove', event => {
   const g = gesture;
   if (g.type === 'pan') setCamera({ ...g.camera, x: g.camera.x + event.clientX - g.x, y: g.camera.y + event.clientY - g.y });
   else if (g.type === 'move') {
-    g.next = { ...g.before, x: g.before.x + p.x - g.x, y: g.before.y + p.y - g.y }; g.moved = Math.hypot(p.x - g.x, p.y - g.y) > 2;
+    const rawX = g.before.x + p.x - g.x;
+    const rawY = g.before.y + p.y - g.y;
+    const nextX = event.altKey ? rawX : snapToGrid(rawX);
+    const nextY = event.altKey ? rawY : snapToGrid(rawY);
+    g.next = { ...g.before, x: nextX, y: nextY };
+    g.moved = Math.hypot(p.x - g.x, p.y - g.y) > 2;
     positionElement(elements.get(g.before.id), g.next); broadcastPreview(g.next);
   } else if (g.type === 'resize') {
-    const w = Math.max(80, g.before.w + p.x - g.x);
-    const h = g.before.type === 'image' ? w * g.before.h / g.before.w : Math.max(50, g.before.h + p.y - g.y);
+    const rawW = Math.max(GRID_SIZE, g.before.w + p.x - g.x);
+    const rawH = g.before.type === 'image' ? rawW * g.before.h / g.before.w : Math.max(GRID_SIZE, g.before.h + p.y - g.y);
+    const w = event.altKey ? rawW : Math.max(GRID_SIZE, snapToGrid(rawW));
+    const h = g.before.type === 'image' ? rawH : (event.altKey ? rawH : Math.max(GRID_SIZE, snapToGrid(rawH)));
     g.next = { ...g.before, w, h }; g.moved = true; positionElement(elements.get(g.before.id), g.next); broadcastPreview(g.next);
   } else if (g.type === 'pen') {
     const last = g.points.at(-1);
     if (g.points.length < 10000 && Math.hypot(p.x - last[0], p.y - last[1]) > 1) g.points.push([p.x, p.y]);
     preview(makeObject('stroke', 0, 0, { ...normalizeStroke(g.points), color }));
   } else if (g.type === 'shape') {
-    g.next = makeObject('shape', Math.min(g.x, p.x), Math.min(g.y, p.y), { id: g.id, w: Math.max(1, Math.abs(p.x - g.x)), h: Math.max(1, Math.abs(p.y - g.y)), color }); preview(g.next);
+    const minX = Math.min(g.x, p.x), minY = Math.min(g.y, p.y);
+    const rawW = Math.max(1, Math.abs(p.x - g.x)), rawH = Math.max(1, Math.abs(p.y - g.y));
+    const snapX = event.altKey ? minX : snapToGrid(minX);
+    const snapY = event.altKey ? minY : snapToGrid(minY);
+    const snapW = event.altKey ? rawW : Math.max(GRID_SIZE, snapToGrid(rawW));
+    const snapH = event.altKey ? rawH : Math.max(GRID_SIZE, snapToGrid(rawH));
+    g.next = makeObject('shape', snapX, snapY, { id: g.id, w: snapW, h: snapH, color, shapeKind: currentShapeKind }); preview(g.next);
   }
 });
 board.addEventListener('pointerup', event => { pointers.delete(event.pointerId); if (pinch) { if (pointers.size < 2) pinch = null; return; } finishGesture(); });
@@ -441,6 +479,12 @@ document.addEventListener('click', async event => {
   const button = event.target.closest('button'); if (!button || button.disabled) return;
   if (button.dataset.tool) { setTool(button.dataset.tool); return; }
   if (button.dataset.color) { color = button.dataset.color; change({ color }); return; }
+  if (button.dataset.shapeKind) {
+    currentShapeKind = button.dataset.shapeKind;
+    if (current()?.type === 'shape') change({ shapeKind: currentShapeKind });
+    select(selected);
+    return;
+  }
   const action = button.dataset.action;
   if (action !== 'menu') { $('#board-menu').hidden = true; $('[data-action="menu"]').setAttribute('aria-expanded', 'false'); }
   try {
@@ -461,7 +505,7 @@ document.addEventListener('click', async event => {
     else if (action === 'close-dialog') $('#dialog').close();
     else if (action === 'edit') await activate(selected);
     else if (action === 'delete') { finishEdit(); change({ deleted: true }); }
-    else if (action === 'duplicate' && current()) { finishEdit(); const object = current(); await add({ ...object, id: crypto.randomUUID(), revision: 0, x: object.x + 32, y: object.y + 32, created: Date.now() }); }
+    else if (action === 'duplicate' && current()) { finishEdit(); const object = current(); await add({ ...object, id: crypto.randomUUID(), revision: 0, x: object.x + GRID_SIZE, y: object.y + GRID_SIZE, created: Date.now() }); }
     else if (action === 'undo' || action === 'redo') undo(action === 'redo');
     else if (action === 'fit') fit();
     else if (['zoom-in', 'zoom-out', 'reset-zoom'].includes(action)) setCamera(zoomAt(camera, action === 'reset-zoom' ? 1 : camera.zoom * (action === 'zoom-in' ? 1.2 : 1 / 1.2), { x: innerWidth / 2, y: innerHeight / 2 }));
@@ -492,7 +536,7 @@ document.addEventListener('keydown', event => {
   if (key === 'enter' && current()) { event.preventDefault(); void activate(selected); }
   if (event.target.closest('[data-id]') && !current()) select(event.target.closest('[data-id]').dataset.id);
   if (current() && event.key.startsWith('Arrow')) {
-    event.preventDefault(); const distance = event.shiftKey ? 10 : 1;
+    event.preventDefault(); const distance = event.shiftKey ? GRID_SIZE : 1;
     const dx = event.key === 'ArrowRight' ? distance : event.key === 'ArrowLeft' ? -distance : 0;
     const dy = event.key === 'ArrowDown' ? distance : event.key === 'ArrowUp' ? -distance : 0;
     if (event.target.matches('[data-resize]')) change({ w: Math.max(80, current().w + dx), h: Math.max(50, current().h + dy) });
