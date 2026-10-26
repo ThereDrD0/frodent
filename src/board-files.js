@@ -296,10 +296,12 @@ export async function exportBoardSvg(title, objects = [], readBlob = null) {
   return blob;
 }
 
-export async function renderSvgToCanvas(svgString, width, height, scale = 2) {
+export async function renderSvgToCanvas(svgString, width, height, preferredScale = 2) {
   if (typeof document === 'undefined') {
     throw new Error('renderSvgToCanvas доступен только в окружении браузера.');
   }
+  const MAX_CANVAS_DIM = 8192;
+  const scale = Math.min(preferredScale, MAX_CANVAS_DIM / Math.max(width, height, 1));
   const canvas = document.createElement('canvas');
   canvas.width = Math.round(width * scale);
   canvas.height = Math.round(height * scale);
@@ -308,18 +310,21 @@ export async function renderSvgToCanvas(svgString, width, height, scale = 2) {
 
   const blob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
   const url = URL.createObjectURL(blob);
-  const img = new Image();
-  img.crossOrigin = 'anonymous';
+  try {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
 
-  await new Promise((resolve, reject) => {
-    img.onload = () => resolve();
-    img.onerror = () => reject(new Error('Не удалось отрендерить SVG на canvas.'));
-    img.src = url;
-  });
+    await new Promise((resolve, reject) => {
+      img.onload = () => resolve();
+      img.onerror = () => reject(new Error('Не удалось отрендерить SVG на canvas.'));
+      img.src = url;
+    });
 
-  ctx.drawImage(img, 0, 0);
-  URL.revokeObjectURL(url);
-  return canvas;
+    ctx.drawImage(img, 0, 0);
+    return canvas;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }
 
 export async function exportBoardPng(title, objects = [], readBlob = null) {

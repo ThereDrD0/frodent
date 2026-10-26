@@ -18,6 +18,16 @@ const history = [], future = [], pointers = new Map();
 let pinch;
 
 let remoteBoardId = null;
+const resolveBlobForExport = async id => {
+  const local = await readBlob(id);
+  if (local) return local;
+  if (remoteBoardId) {
+    try {
+      return await backend.fetchAttachment(`/api/v1/boards/${remoteBoardId}/attachments/${id}`);
+    } catch {}
+  }
+  return null;
+};
 let realtimeClient = null;
 let currentUserId = null;
 let currentUserRole = 'editor';
@@ -79,6 +89,7 @@ function fit() { setCamera(fitCamera(active(), innerWidth, innerHeight)); }
 
 let searchMatches = [];
 let searchIndex = -1;
+let searchTransitionTimer;
 
 function clearSearchHighlights() {
   for (const el of elements.values()) {
@@ -101,6 +112,8 @@ function openSearch() {
 }
 
 function closeSearch() {
+  clearTimeout(searchTransitionTimer);
+  world.style.transition = '';
   const bar = $('#search-bar');
   if (bar) bar.hidden = true;
   clearSearchHighlights();
@@ -176,13 +189,14 @@ function highlightActiveSearchMatch() {
     };
   }
 
+  clearTimeout(searchTransitionTimer);
   world.style.transition = 'transform 0.25s ease-out';
   setCamera({
     x: window.innerWidth / 2 - targetWorldPoint.x * camera.zoom,
     y: window.innerHeight / 2 - targetWorldPoint.y * camera.zoom,
     zoom: camera.zoom
   });
-  setTimeout(() => {
+  searchTransitionTimer = setTimeout(() => {
     world.style.transition = '';
   }, 260);
 }
@@ -1590,14 +1604,14 @@ document.addEventListener('click', async event => {
     else if (action === 'search-prev') navigateSearch(-1);
     else if (action === 'search-close') closeSearch();
     else if (action === 'export-svg') {
-      await exportBoardSvg($('#board-title').value, active(), readBlob);
+      await exportBoardSvg($('#board-title').value, active(), resolveBlobForExport);
     }
     else if (action === 'export-png') {
-      await exportBoardPng($('#board-title').value, active(), readBlob);
+      await exportBoardPng($('#board-title').value, active(), resolveBlobForExport);
     }
     else if (action === 'export-copy-png') {
       try {
-        await copyBoardPng($('#board-title').value, active(), readBlob);
+        await copyBoardPng($('#board-title').value, active(), resolveBlobForExport);
         toast('Изображение скопировано в буфер обмена');
       } catch (err) {
         toast(`Не удалось скопировать: ${err.message}`);
@@ -1719,7 +1733,7 @@ document.addEventListener('keydown', event => {
     event.preventDefault();
     enqueue(async () => {
       try {
-        await copyBoardPng($('#board-title').value, active(), readBlob);
+        await copyBoardPng($('#board-title').value, active(), resolveBlobForExport);
         toast('Изображение скопировано в буфер обмена');
       } catch (err) {
         toast(`Не удалось скопировать: ${err.message}`);
@@ -1866,12 +1880,20 @@ async function initBoard() {
             if (fresh.title && document.activeElement !== $('#board-title')) {
               $('#board-title').value = fresh.title;
             }
+            const freshIds = new Set(fresh.objects?.map(o => o.id) || []);
             for (const obj of fresh.objects || []) {
               if (obj.attachmentId) obj.blobId = obj.attachmentId;
               const cur = objects.get(obj.id);
               if (!cur || (obj.revision >= cur.revision && editing?.id !== obj.id && gesture?.before?.id !== obj.id && !gesture?.targets?.has(obj.id))) {
                 objects.set(obj.id, obj);
                 renderObject(obj);
+              }
+            }
+            for (const [id, cur] of objects) {
+              if (!cur.deleted && !freshIds.has(id) && editing?.id !== id && gesture?.before?.id !== id && !gesture?.targets?.has(id)) {
+                const removed = { ...cur, deleted: true, revision: fresh.serverSeq || cur.revision };
+                objects.set(id, removed);
+                renderObject(removed);
               }
             }
           } catch {}
