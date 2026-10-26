@@ -102,7 +102,7 @@ class ObjectDraft(StrictModel):
     start_y: float | None = Field(default=None, alias="startY")
     end_x: float | None = Field(default=None, alias="endX")
     end_y: float | None = Field(default=None, alias="endY")
-    style: Literal["curved", "straight"] | None = None
+    style: Literal["curved", "straight", "orthogonal"] | None = None
 
     @field_validator("x", "y", "start_x", "start_y", "end_x", "end_y")
     @classmethod
