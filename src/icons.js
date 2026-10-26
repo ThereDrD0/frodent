@@ -41,7 +41,12 @@ const paths = {
   arrow: '<path d="M5 12h14m-6-6 6 6-6 6"/>',
   curve: '<path d="M4 19C10 19 14 5 20 5"/>',
   straight: '<path d="M4 12h16"/>',
-  check: '<path d="m5 12 4 4L19 6"/>'
+  orthogonal: '<path d="M4 20V10h16m-5-5 5 5-5 5"/>',
+  check: '<path d="m5 12 4 4L19 6"/>',
+  close: '<path d="M18 6 6 18M6 6l12 12"/>',
+  'arrow-up': '<path d="m18 15-6-6-6 6"/>',
+  'arrow-down': '<path d="m6 9 6 6 6-6"/>',
+  image: '<rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/>'
 };
 export function icon(name) { return `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.document}</svg>`; }
 export function hydrateIcons(root = document) { root.querySelectorAll('[data-icon]').forEach(el => { el.innerHTML = icon(el.dataset.icon); }); }
