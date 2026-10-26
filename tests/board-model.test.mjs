@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { makeObject, validObject, initialObjects, worldPoint, zoomAt, fitCamera, normalizeStroke, snapshot, parseSnapshot, GRID_SIZE, snapToGrid, snapPoint, SHAPE_KINDS, SIDES, CONNECTOR_STYLES, connectorAnchor, connectorEndpoints, connectorPath, closestSide } from '../src/board-model.js';
-import { fileKind, MAX_FILE } from '../src/board-files.js';
+import { makeObject, validObject, initialObjects, worldPoint, zoomAt, fitCamera, normalizeStroke, snapshot, parseSnapshot, GRID_SIZE, snapToGrid, snapPoint, SHAPE_KINDS, SIDES, CONNECTOR_STYLES, connectorAnchor, connectorEndpoints, connectorPath, closestSide, matchSearch } from '../src/board-model.js';
+import { fileKind, MAX_FILE, renderBoardSvg, escapeXml } from '../src/board-files.js';
 
 test('Seed and newly created objects pass schema validation', () => {
   assert.ok(initialObjects().every(validObject));
@@ -63,7 +63,7 @@ test('Grid snapping and shape kind validation', () => {
 });
 test('Connector validation, endpoint resolution and path calculation', () => {
   assert.deepEqual(SIDES, ['top', 'right', 'bottom', 'left']);
-  assert.deepEqual(CONNECTOR_STYLES, ['curved', 'straight']);
+  assert.deepEqual(CONNECTOR_STYLES, ['curved', 'straight', 'orthogonal']);
 
   const conn = makeObject('connector', 10, 20);
   assert.equal(conn.type, 'connector');
@@ -139,6 +139,11 @@ test('Connector validation, endpoint resolution and path calculation', () => {
   assert.ok(curvedPath.path.endsWith(', 200 0'));
   assert.ok(Number.isFinite(curvedPath.midpoint.x) && Number.isFinite(curvedPath.midpoint.y));
 
+  const orthoPath = connectorPath({ x: 0, y: 0 }, { x: 100, y: 100 }, 'right', 'left', 'orthogonal');
+  assert.ok(orthoPath.path.startsWith('M 0 0 L '));
+  assert.ok(orthoPath.path.endsWith(' 100 100'));
+  assert.ok(Number.isFinite(orthoPath.midpoint.x) && Number.isFinite(orthoPath.midpoint.y));
+
   // Null and undefined checks for free connectors
   const nullConnector = makeObject('connector', 0, 0, {
     fromId: null,
@@ -187,4 +192,130 @@ test('Connector validation, endpoint resolution and path calculation', () => {
     start: { x: 100, y: 50 },
     end: { x: 500, y: 400 }
   });
+
+  // Orthogonal style connector validation and path segment checks
+  const orthoConn = makeObject('connector', 0, 0, { style: 'orthogonal', startX: 10, startY: 20, endX: 200, endY: 150 });
+  assert.ok(validObject(orthoConn));
+  assert.equal(orthoConn.style, 'orthogonal');
+
+  const testCases = [
+    { start: { x: 0, y: 0 }, end: { x: 100, y: 100 }, fromSide: 'right', toSide: 'left' },
+    { start: { x: 0, y: 0 }, end: { x: 100, y: 100 }, fromSide: 'bottom', toSide: 'top' },
+    { start: { x: 0, y: 0 }, end: { x: 100, y: 100 }, fromSide: 'right', toSide: 'top' },
+    { start: { x: 100, y: 100 }, end: { x: 0, y: 0 }, fromSide: 'left', toSide: 'right' }
+  ];
+
+  for (const tc of testCases) {
+    const res = connectorPath(tc.start, tc.end, tc.fromSide, tc.toSide, 'orthogonal');
+    assert.ok(res.path.startsWith('M '));
+    // Все сегменты должны быть строго горизонтальными или вертикальными
+    const coords = res.path.replace(/[ML]/g, '').trim().split(/\s+/).map(Number);
+    for (let i = 0; i < coords.length - 2; i += 2) {
+      const x1 = coords[i], y1 = coords[i + 1], x2 = coords[i + 2], y2 = coords[i + 3];
+      assert.ok(x1 === x2 || y1 === y2, `Segment (${x1},${y1})-(${x2},${y2}) is not orthogonal`);
+    }
+    assert.ok(Number.isFinite(res.midpoint.x) && Number.isFinite(res.midpoint.y));
+  }
+
+  // Bounds for marquee intersection using connectorEndpoints
+  const testConn = makeObject('connector', 0, 0, { startX: 150, startY: 250, endX: 50, endY: 50 });
+  const ep = connectorEndpoints(testConn, () => null);
+  const bMinX = Math.min(ep.start.x, ep.end.x), bMaxX = Math.max(ep.start.x, ep.end.x);
+  const bMinY = Math.min(ep.start.y, ep.end.y), bMaxY = Math.max(ep.start.y, ep.end.y);
+  assert.equal(bMinX, 50);
+  assert.equal(bMaxX, 150);
+  assert.equal(bMinY, 50);
+  assert.equal(bMaxY, 250);
+});
+
+test('Vector SVG export generates clean standalone SVG with all element types and escaping', async () => {
+  assert.equal(escapeXml('Hello & <world> "test" \'single\''), 'Hello &amp; &lt;world&gt; &quot;test&quot; &apos;single&apos;');
+  assert.equal(escapeXml(null), '');
+  assert.equal(escapeXml(undefined), '');
+
+  // Пустая доска
+  const emptySvgRes = await renderBoardSvg('Пустая доска', []);
+  assert.ok(emptySvgRes.svg.includes('<svg xmlns="http://www.w3.org/2000/svg"'));
+  assert.ok(emptySvgRes.svg.includes('<title>Пустая доска</title>'));
+  assert.ok(Number.isFinite(emptySvgRes.width) && emptySvgRes.width > 0);
+  assert.ok(Number.isFinite(emptySvgRes.height) && emptySvgRes.height > 0);
+
+  // Набор объектов всех типов
+  const sampleObjects = [
+    makeObject('sticky', 100, 100, { text: 'Стикер с идеей & заметкой', color: 'mint', w: 200, h: 150 }),
+    makeObject('text', 350, 100, { text: 'Заголовок проекта', headline: true, w: 300, h: 80 }),
+    makeObject('shape', 100, 300, { shapeKind: 'rect', text: 'Прямоугольник', color: 'blue', w: 180, h: 100 }),
+    makeObject('shape', 320, 300, { shapeKind: 'ellipse', text: 'Эллипс', color: 'neutral', w: 120, h: 100 }),
+    makeObject('shape', 480, 300, { shapeKind: 'diamond', text: 'Ромб', color: 'mint', w: 100, h: 100 }),
+    makeObject('stroke', 100, 450, { points: [[0, 0], [50, 20], [100, 10]], color: 'mint', w: 100, h: 20 }),
+    makeObject('connector', 0, 0, { startX: 200, startY: 175, endX: 350, endY: 350, style: 'curved', color: 'mint', text: 'Связь 1' }),
+    makeObject('connector', 0, 0, { startX: 280, startY: 350, endX: 320, endY: 350, style: 'orthogonal', color: 'blue', text: 'Поток' }),
+    makeObject('file', 100, 500, { text: 'document.pdf', w: 220, h: 60 }),
+    makeObject('image', 350, 500, { text: 'landscape.svg', asset: 'landscape', w: 200, h: 120 }),
+    makeObject('sticky', 800, 800, { text: 'Удаленный стикер', deleted: true })
+  ];
+
+  const res = await renderBoardSvg('Тестовая доска <Экспорт>', sampleObjects);
+  const svg = res.svg;
+
+  // XML и заголовок
+  assert.ok(svg.startsWith('<?xml version="1.0" encoding="UTF-8"?>'));
+  assert.ok(svg.includes('<title>Тестовая доска &lt;Экспорт&gt;</title>'));
+  assert.ok(svg.includes('viewBox="'));
+
+  // Defs с маркерами стрелок
+  assert.ok(svg.includes('id="arrowhead-mint"'));
+  assert.ok(svg.includes('id="arrowhead-blue"'));
+  assert.ok(svg.includes('id="arrowhead-neutral"'));
+
+  // Объекты
+  assert.ok(svg.includes('Стикер с идеей &amp;'));
+  assert.ok(svg.includes('заметкой'));
+  assert.ok(svg.includes('Заголовок'));
+  assert.ok(svg.includes('проекта'));
+  assert.ok(svg.includes('Прямоугольник'));
+  assert.ok(svg.includes('Эллипс'));
+  assert.ok(svg.includes('Ромб'));
+  assert.ok(svg.includes('document.pdf'));
+  assert.ok(svg.includes('Связь 1'));
+  assert.ok(svg.includes('Поток'));
+  assert.ok(svg.includes('marker-end="url(#arrowhead-mint)"'));
+  assert.ok(svg.includes('marker-end="url(#arrowhead-blue)"'));
+
+  // Удаленный объект не должен попадать в SVG
+  assert.equal(svg.includes('Удаленный стикер'), false);
+
+  // Размеры
+  assert.ok(res.width >= 580);
+  assert.ok(res.height >= 520);
+});
+
+test('Full-text search matching across sticks, shapes, connectors, texts, files and images', () => {
+  const sticky = makeObject('sticky', 0, 0, { text: 'План запуска проекта' });
+  const shape = makeObject('shape', 0, 0, { text: 'Блок-схема авторизации' });
+  const text = makeObject('text', 0, 0, { text: 'Важное уведомление для команды' });
+  const connector = makeObject('connector', 0, 0, { text: 'Связь с базой данных' });
+  const file = makeObject('file', 0, 0, { text: 'отчет_финал_2026.pdf' });
+  const image = makeObject('image', 0, 0, { text: 'Архитектура_системы.png' });
+  const deletedSticky = makeObject('sticky', 0, 0, { text: 'Секретный удаленный план', deleted: true });
+
+  assert.equal(matchSearch(sticky, 'план'), true);
+  assert.equal(matchSearch(sticky, 'ПРОЕКТА'), true);
+  assert.equal(matchSearch(shape, 'авторизац'), true);
+  assert.equal(matchSearch(text, 'команды'), true);
+  assert.equal(matchSearch(connector, 'базой данных'), true);
+  assert.equal(matchSearch(file, '2026.pdf'), true);
+  assert.equal(matchSearch(image, 'архитектура'), true);
+
+  // Удаленный объект
+  assert.equal(matchSearch(deletedSticky, 'план'), false);
+
+  // Пустой запрос или пробелы
+  assert.equal(matchSearch(sticky, ''), false);
+  assert.equal(matchSearch(sticky, '   '), false);
+  assert.equal(matchSearch(sticky, null), false);
+  assert.equal(matchSearch(null, 'план'), false);
+
+  // Несовпадающий запрос
+  assert.equal(matchSearch(sticky, 'несуществующий текст'), false);
 });
