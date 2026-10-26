@@ -2,7 +2,7 @@ export const BOARD_ID = 'workspace';
 export const COLORS = ['mint', 'blue', 'neutral'];
 export const TYPES = ['sticky', 'text', 'shape', 'stroke', 'image', 'file', 'connector'];
 export const SIDES = ['top', 'right', 'bottom', 'left'];
-export const CONNECTOR_STYLES = ['curved', 'straight'];
+export const CONNECTOR_STYLES = ['curved', 'straight', 'orthogonal'];
 export const GRID_SIZE = 24;
 export const SHAPE_KINDS = ['rect', 'ellipse', 'diamond'];
 export function snapToGrid(value, step = GRID_SIZE) {
@@ -81,6 +81,13 @@ export function initialObjects() {
   ];
 }
 
+export function matchSearch(object, query) {
+  if (!object || object.deleted || !query) return false;
+  const q = String(query).trim().toLowerCase();
+  if (!q) return false;
+  return typeof object.text === 'string' && object.text.toLowerCase().includes(q);
+}
+
 export function connectorAnchor(object, side) {
   const cx = object.x + object.w / 2;
   const cy = object.y + object.h / 2;
@@ -151,6 +158,93 @@ export function connectorPath(start, end, fromSide, toSide, style = 'curved') {
 
   const n1 = SIDE_NORMALS[fromSide] || (Math.abs(dx) >= Math.abs(dy) ? { x: dx >= 0 ? 1 : -1, y: 0 } : { x: 0, y: dy >= 0 ? 1 : -1 });
   const n2 = SIDE_NORMALS[toSide] || (Math.abs(dx) >= Math.abs(dy) ? { x: dx >= 0 ? -1 : 1, y: 0 } : { x: 0, y: dy >= 0 ? -1 : 1 });
+
+  if (style === 'orthogonal') {
+    const points = [start];
+    const margin = 20;
+
+    if (n1.x !== 0 && n2.x !== 0) {
+      if ((n1.x > 0 && n2.x < 0 && end.x >= start.x) || (n1.x < 0 && n2.x > 0 && end.x <= start.x)) {
+        const midX = (start.x + end.x) / 2;
+        points.push({ x: midX, y: start.y }, { x: midX, y: end.y });
+      } else {
+        const x1 = start.x + n1.x * margin;
+        const x2 = end.x + n2.x * margin;
+        const midY = (start.y + end.y) / 2;
+        points.push({ x: x1, y: start.y }, { x: x1, y: midY }, { x: x2, y: midY }, { x: x2, y: end.y });
+      }
+    } else if (n1.y !== 0 && n2.y !== 0) {
+      if ((n1.y > 0 && n2.y < 0 && end.y >= start.y) || (n1.y < 0 && n2.y > 0 && end.y <= start.y)) {
+        const midY = (start.y + end.y) / 2;
+        points.push({ x: start.x, y: midY }, { x: end.x, y: midY });
+      } else {
+        const y1 = start.y + n1.y * margin;
+        const y2 = end.y + n2.y * margin;
+        const midX = (start.x + end.x) / 2;
+        points.push({ x: start.x, y: y1 }, { x: midX, y: y1 }, { x: midX, y: y2 }, { x: end.x, y: y2 });
+      }
+    } else if (n1.x !== 0) {
+      if ((n1.x > 0 && end.x >= start.x) || (n1.x < 0 && end.x <= start.x)) {
+        points.push({ x: end.x, y: start.y });
+      } else {
+        const x1 = start.x + n1.x * margin;
+        points.push({ x: x1, y: start.y }, { x: x1, y: end.y });
+      }
+    } else {
+      if ((n1.y > 0 && end.y >= start.y) || (n1.y < 0 && end.y <= start.y)) {
+        points.push({ x: start.x, y: end.y });
+      } else {
+        const y1 = start.y + n1.y * margin;
+        points.push({ x: start.x, y: y1 }, { x: end.x, y: y1 });
+      }
+    }
+    points.push(end);
+
+    const clean = [];
+    for (const pt of points) {
+      const prev = clean.at(-1);
+      if (!prev || prev.x !== pt.x || prev.y !== pt.y) clean.push({ x: pt.x, y: pt.y });
+    }
+    const simplified = [];
+    for (let i = 0; i < clean.length; i++) {
+      if (i > 0 && i < clean.length - 1) {
+        const prev = clean[i - 1], curr = clean[i], next = clean[i + 1];
+        if ((prev.x === curr.x && curr.x === next.x) || (prev.y === curr.y && curr.y === next.y)) {
+          continue;
+        }
+      }
+      simplified.push(clean[i]);
+    }
+
+    const d = simplified.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
+
+    let totalLen = 0;
+    const segLens = [];
+    for (let i = 0; i < simplified.length - 1; i++) {
+      const len = Math.hypot(simplified[i + 1].x - simplified[i].x, simplified[i + 1].y - simplified[i].y);
+      segLens.push(len);
+      totalLen += len;
+    }
+
+    let midpoint = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
+    if (totalLen > 0) {
+      const targetLen = totalLen / 2;
+      let accum = 0;
+      for (let i = 0; i < segLens.length; i++) {
+        if (accum + segLens[i] >= targetLen) {
+          const t = segLens[i] === 0 ? 0 : (targetLen - accum) / segLens[i];
+          midpoint = {
+            x: simplified[i].x + t * (simplified[i + 1].x - simplified[i].x),
+            y: simplified[i].y + t * (simplified[i + 1].y - simplified[i].y)
+          };
+          break;
+        }
+        accum += segLens[i];
+      }
+    }
+
+    return { path: d, d, midpoint };
+  }
 
   const offset = Math.max(dist * 0.4, 24);
   const c1 = { x: start.x + n1.x * offset, y: start.y + n1.y * offset };
