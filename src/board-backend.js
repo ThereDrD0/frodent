@@ -1,10 +1,5 @@
 // Server snapshots use immutable board copies; live editing remains local-first.
 let token = '';
-try {
-  if (typeof window !== 'undefined' && window.localStorage) {
-    token = window.localStorage.getItem('ryadom.token') || '';
-  }
-} catch {}
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const mimeExtensions = {
   'image/png': '.png', 'image/jpeg': '.jpg', 'image/webp': '.webp', 'image/gif': '.gif',
@@ -62,12 +57,6 @@ export function getAuthToken() {
 
 export function setToken(t) {
   token = typeof t === 'string' ? t.trim() : '';
-  try {
-    if (typeof window !== 'undefined' && window.localStorage) {
-      if (token) window.localStorage.setItem('ryadom.token', token);
-      else window.localStorage.removeItem('ryadom.token');
-    }
-  } catch {}
 }
 
 export async function getUserInfo() {

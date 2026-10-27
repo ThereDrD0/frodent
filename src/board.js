@@ -1,5 +1,5 @@
 import { icon, hydrateIcons } from './icons.js';
-import { makeObject, validObject, fitCamera, worldPoint, zoomAt, normalizeStroke, snapshot, parseSnapshot, GRID_SIZE, snapToGrid, snapPoint, SHAPE_KINDS, connectorAnchor, connectorEndpoints, connectorPath, SIDES, CONNECTOR_STYLES, closestSide, matchSearch } from './board-model.js';
+import { makeObject, validObject, fitCamera, worldPoint, zoomAt, normalizeStroke, snapshot, parseSnapshot, GRID_SIZE, snapToGrid, snapPoint, SHAPE_KINDS, connectorAnchor, connectorEndpoints, connectorPath, SIDES, CONNECTOR_STYLES, closestSide, matchSearch, getMinimapWorldBounds, getMinimapProjection, worldToMinimap, minimapToWorld, getMinimapViewportRect } from './board-model.js';
 import { openBoard, initialize, allObjects, commitObject, readValue, writeMeta } from './board-storage.js';
 import { fileKind, humanSize, imageSize, download, MAX_FILE, exportBoardSvg, exportBoardPng, copyBoardPng } from './board-files.js';
 import * as backend from './board-backend.js';
@@ -84,8 +84,248 @@ function setCamera(next) {
   board.style.backgroundSize = `${GRID_SIZE * camera.zoom}px ${GRID_SIZE * camera.zoom}px`;
   $('#zoom').textContent = `${Math.round(camera.zoom * 100)}%`;
   drawPeers();
+  updateMinimapViewport();
 }
 function fit() { setCamera(fitCamera(active(), innerWidth, innerHeight)); }
+
+const minimapEl = $('#minimap');
+const minimapCanvas = $('#minimap-canvas');
+const minimapViewportEl = $('#minimap-viewport');
+const minimapCloseBtn = $('#minimap-close');
+let lastMinimapProj = null;
+let minimapRenderScheduled = false;
+let isMinimapDragging = false;
+let dragProj = null;
+
+let minimapVisible = true;
+try {
+  const saved = localStorage.getItem('ryadom.minimap');
+  if (saved !== null) minimapVisible = saved === 'true';
+} catch {}
+
+function setMinimapVisible(visible) {
+  minimapVisible = !!visible;
+  try {
+    localStorage.setItem('ryadom.minimap', String(minimapVisible));
+  } catch {}
+  if (minimapEl) {
+    minimapEl.hidden = !minimapVisible;
+  }
+  const btn = $('[data-action="toggle-minimap"]');
+  if (btn) {
+    btn.setAttribute('aria-pressed', String(minimapVisible));
+  }
+  if (minimapVisible) {
+    requestMinimapRender();
+  }
+}
+
+function getMinimapPalette() {
+  const isDark = document.documentElement.dataset.theme === 'dark';
+  return isDark ? {
+    mint: '#1a4f48',
+    blue: '#2d4257',
+    neutral: '#394644',
+    text: '#9ba4a2',
+    connector: '#81d5cc',
+    image: '#2a3534',
+    file: '#2a3534',
+    stroke: '#4ef5e7'
+  } : {
+    mint: '#bcece4',
+    blue: '#cee5ff',
+    neutral: '#e0e3e2',
+    text: '#4a5452',
+    connector: '#006a63',
+    image: '#dbe5e2',
+    file: '#dbe5e2',
+    stroke: '#006a63'
+  };
+}
+
+function renderMinimap() {
+  if (!minimapEl || minimapEl.hidden || !minimapCanvas) return;
+  const ctx = minimapCanvas.getContext('2d');
+  if (!ctx) return;
+
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const mapW = minimapCanvas.clientWidth || minimapCanvas.width || 220;
+  const mapH = minimapCanvas.clientHeight || minimapCanvas.height || 140;
+  if (minimapCanvas.width !== Math.round(mapW * dpr) || minimapCanvas.height !== Math.round(mapH * dpr)) {
+    minimapCanvas.width = Math.round(mapW * dpr);
+    minimapCanvas.height = Math.round(mapH * dpr);
+  }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  const activeList = active();
+  const zoom = camera?.zoom > 0 ? camera.zoom : 1;
+  const vpWorld = {
+    x: -camera.x / zoom,
+    y: -camera.y / zoom,
+    w: innerWidth / zoom,
+    h: innerHeight / zoom
+  };
+
+  const worldBounds = getMinimapWorldBounds(activeList, vpWorld);
+  const proj = getMinimapProjection(worldBounds, mapW, mapH, 8);
+  lastMinimapProj = proj;
+
+  ctx.clearRect(0, 0, mapW, mapH);
+  const palette = getMinimapPalette();
+
+  for (const obj of activeList) {
+    if (obj.type === 'connector') {
+      const ep = connectorEndpoints(obj, id => objects.get(id));
+      const p1 = worldToMinimap(ep.start, proj);
+      const p2 = worldToMinimap(ep.end, proj);
+      ctx.strokeStyle = palette[obj.color] || palette.connector;
+      ctx.lineWidth = Math.max(1, 1.5 * proj.scale);
+      ctx.beginPath();
+      ctx.moveTo(p1.x, p1.y);
+      ctx.lineTo(p2.x, p2.y);
+      ctx.stroke();
+    } else if (obj.type === 'stroke') {
+      if (obj.points && obj.points.length) {
+        ctx.strokeStyle = palette[obj.color] || palette.stroke;
+        ctx.lineWidth = Math.max(1, 1.5 * proj.scale);
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.beginPath();
+        for (let i = 0; i < obj.points.length; i++) {
+          const p = obj.points[i];
+          const mpt = worldToMinimap({ x: obj.x + p[0], y: obj.y + p[1] }, proj);
+          if (i === 0) ctx.moveTo(mpt.x, mpt.y); else ctx.lineTo(mpt.x, mpt.y);
+        }
+        ctx.stroke();
+      }
+    } else if (obj.type === 'text') {
+      const pt = worldToMinimap(obj, proj);
+      const w = Math.max(4, obj.w * proj.scale);
+      const h = Math.max(2, Math.min(obj.h * proj.scale, 8));
+      ctx.fillStyle = palette.text;
+      ctx.fillRect(pt.x, pt.y, w, Math.min(h, 4));
+    } else if (obj.type === 'shape') {
+      const pt = worldToMinimap(obj, proj);
+      const w = Math.max(3, obj.w * proj.scale);
+      const h = Math.max(3, obj.h * proj.scale);
+      ctx.fillStyle = palette[obj.color] || palette.mint;
+      ctx.beginPath();
+      if (obj.shapeKind === 'ellipse') {
+        ctx.ellipse(pt.x + w / 2, pt.y + h / 2, Math.max(1.5, w / 2), Math.max(1.5, h / 2), 0, 0, Math.PI * 2);
+      } else if (obj.shapeKind === 'diamond') {
+        ctx.moveTo(pt.x + w / 2, pt.y);
+        ctx.lineTo(pt.x + w, pt.y + h / 2);
+        ctx.lineTo(pt.x + w / 2, pt.y + h);
+        ctx.lineTo(pt.x, pt.y + h / 2);
+        ctx.closePath();
+      } else {
+        if (ctx.roundRect) ctx.roundRect(pt.x, pt.y, w, h, 2); else ctx.rect(pt.x, pt.y, w, h);
+      }
+      ctx.fill();
+    } else if (obj.type === 'image' || obj.type === 'file') {
+      const pt = worldToMinimap(obj, proj);
+      const w = Math.max(3, obj.w * proj.scale);
+      const h = Math.max(3, obj.h * proj.scale);
+      ctx.fillStyle = palette[obj.type] || palette.image;
+      if (ctx.roundRect) {
+        ctx.beginPath();
+        ctx.roundRect(pt.x, pt.y, w, h, 2);
+        ctx.fill();
+      } else {
+        ctx.fillRect(pt.x, pt.y, w, h);
+      }
+    } else {
+      const pt = worldToMinimap(obj, proj);
+      const w = Math.max(3, obj.w * proj.scale);
+      const h = Math.max(3, obj.h * proj.scale);
+      ctx.fillStyle = palette[obj.color] || palette.mint;
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(pt.x, pt.y, w, h, 2); else ctx.rect(pt.x, pt.y, w, h);
+      ctx.fill();
+    }
+  }
+
+  updateMinimapViewport();
+}
+
+function requestMinimapRender() {
+  if (!minimapVisible || minimapRenderScheduled) return;
+  minimapRenderScheduled = true;
+  requestAnimationFrame(() => {
+    minimapRenderScheduled = false;
+    renderMinimap();
+  });
+}
+
+function updateMinimapViewport() {
+  if (!minimapVisible || !minimapViewportEl || !lastMinimapProj) return;
+  const vpRect = getMinimapViewportRect(camera, innerWidth, innerHeight, lastMinimapProj);
+  minimapViewportEl.style.transform = `translate(${vpRect.x}px, ${vpRect.y}px)`;
+  minimapViewportEl.style.width = `${vpRect.w}px`;
+  minimapViewportEl.style.height = `${vpRect.h}px`;
+}
+
+function handleMinimapPointer(event, proj) {
+  if (!proj || !minimapCanvas) return;
+  const rect = minimapCanvas.getBoundingClientRect();
+  const miniX = event.clientX - rect.left;
+  const miniY = event.clientY - rect.top;
+  const worldPt = minimapToWorld({ x: miniX, y: miniY }, proj);
+  const zoom = camera?.zoom > 0 ? camera.zoom : 1;
+  setCamera({
+    ...camera,
+    x: innerWidth / 2 - worldPt.x * zoom,
+    y: innerHeight / 2 - worldPt.y * zoom
+  });
+}
+
+function setupMinimapEvents() {
+  if (!minimapEl) return;
+
+  minimapEl.addEventListener('pointerdown', event => {
+    event.stopPropagation();
+    if (event.button !== 0) return;
+    if (event.target.closest('#minimap-close')) return;
+    finishEdit();
+    if (!lastMinimapProj) renderMinimap();
+    isMinimapDragging = true;
+    dragProj = lastMinimapProj;
+    try { minimapEl.setPointerCapture(event.pointerId); } catch {}
+    handleMinimapPointer(event, dragProj);
+  });
+
+  minimapEl.addEventListener('pointermove', event => {
+    event.stopPropagation();
+    if (!isMinimapDragging || !dragProj) return;
+    handleMinimapPointer(event, dragProj);
+  });
+
+  const endDrag = event => {
+    if (!isMinimapDragging) return;
+    event.stopPropagation();
+    isMinimapDragging = false;
+    dragProj = null;
+    try { minimapEl.releasePointerCapture(event.pointerId); } catch {}
+    requestMinimapRender();
+  };
+
+  minimapEl.addEventListener('pointerup', endDrag);
+  minimapEl.addEventListener('pointercancel', endDrag);
+  minimapEl.addEventListener('wheel', event => {
+    event.stopPropagation();
+  });
+
+  minimapEl.addEventListener('contextmenu', event => {
+    event.preventDefault();
+    event.stopPropagation();
+    setMinimapVisible(false);
+  });
+
+  minimapCloseBtn?.addEventListener('click', event => {
+    event.stopPropagation();
+    setMinimapVisible(false);
+  });
+}
 
 let searchMatches = [];
 let searchIndex = -1;
@@ -309,6 +549,7 @@ function ensureConnectorMarkers() {
 }
 
 function renderConnector(object, ghost = false, liveResolver = null) {
+  if (!ghost) requestMinimapRender();
   if (!ghost && object.deleted) {
     elements.get(object.id)?.remove();
     elements.delete(object.id);
@@ -408,6 +649,7 @@ function positionElement(element, object) {
 }
 function renderObject(object, ghost = false) {
   if (object.type === 'connector') return renderConnector(object, ghost);
+  if (!ghost) requestMinimapRender();
   if (!ghost && object.deleted) {
     elements.get(object.id)?.remove();
     elements.delete(object.id);
@@ -1445,15 +1687,19 @@ async function showDialog(type = 'share') {
     return;
   }
 
+  if (!$('#dialog').open) $('#dialog').showModal();
+
   let me = null;
   if (backend.authenticated()) {
     try { me = await backend.getUserInfo(); } catch { backend.setToken(''); }
   }
+  if (!$('#dialog').open) return;
 
   let content = '';
   if (me) {
     let boardsList = { items: [] };
     try { boardsList = await backend.listBoards(); } catch {}
+    if (!$('#dialog').open) return;
 
     const directUrl = remoteBoardId ? `${location.origin}${location.pathname}?board=${remoteBoardId}` : '';
 
@@ -1480,7 +1726,7 @@ async function showDialog(type = 'share') {
           </div>
         </div>
       ` : `
-        <p class="info-box">Сейчас открыта <strong>локальная доска</strong> (сохраняется в вашем браузере). Создайте онлайн-доску или выберите существующую из списка ниже, чтобы редактировать вместе в реальном времени.</p>
+        <p class="info-box">Сейчас открыта <strong>локальная доска</strong> (сохраняется в вашем браузере). Синхронизация между устройствами доступна на серверных досках. Создайте онлайн-доску или выберите существующую из списка ниже, чтобы редактировать вместе в реальном времени.</p>
       `}
 
       <h3 style="margin-top: 20px; font-size: 16px;">Мои доски</h3>
@@ -1506,12 +1752,19 @@ async function showDialog(type = 'share') {
         <span style="font-size:12px;color:var(--on-surface-variant);">Резервное сохранение</span>
         <button class="text-button" data-action="server-save" style="font-size:12px;">Сохранить снимок</button>
       </div>
+      <form id="server-load" style="margin-top: 10px;">
+        <label for="snapshot-id">Числовой ID старого снимка или UUID серверной доски</label>
+        <div class="copy-row">
+          <input id="snapshot-id" maxlength="36" required>
+          <button class="text-button" type="submit">Добавить снимок</button>
+        </div>
+      </form>
       <div id="server-error" class="dialog-error" role="alert"></div>
     `;
   } else {
     content = `
       <h2 id="dialog-title">Вход для совместной работы</h2>
-      <p>Войдите или создайте аккаунт, чтобы работать на общих досках, видеть курсоры коллег и делиться ссылками.</p>
+      <p>Войдите или создайте аккаунт, чтобы работать на общих досках между устройствами, видеть курсоры коллег и делиться ссылками.</p>
       <form id="server-login" data-mode="login">
         <label for="email">Email</label>
         <input id="email" type="email" autocomplete="username" required>
@@ -1578,6 +1831,25 @@ async function showDialog(type = 'share') {
       $('#server-error').textContent = err.message;
       event.submitter.disabled = false;
     }
+  });
+
+  $('#server-load')?.addEventListener('submit', async event => {
+    event.preventDefault(); event.submitter.disabled = true;
+    try {
+      const snapshot = await backend.loadSnapshot($('#snapshot-id').value);
+      if (snapshot.kind === 'legacy') await importBoard(snapshot.content);
+      else {
+        const data = {
+          format: 'ryadom-board', version: 1, title: snapshot.board.title,
+          objects: snapshot.board.objects.map(source => {
+            const { attachmentId, originalName, mime, size, sha256, downloadUrl, ...object } = source;
+            return { ...object, revision: 0, deleted: false, ...(attachmentId ? { blobId: attachmentId } : {}) };
+          }), files: []
+        };
+        await importBoard(JSON.stringify(data), snapshot.files, snapshot.names);
+      }
+      $('#dialog').close();
+    } catch (error) { $('#server-error').textContent = error.message; } finally { event.submitter.disabled = false; }
   });
 }
 
@@ -1677,8 +1949,9 @@ document.addEventListener('click', async event => {
     else if (action === 'duplicate') await duplicateSelected();
     else if (action === 'undo' || action === 'redo') undo(action === 'redo');
     else if (action === 'fit') fit();
+    else if (action === 'toggle-minimap') setMinimapVisible(!minimapVisible);
     else if (['zoom-in', 'zoom-out', 'reset-zoom'].includes(action)) setCamera(zoomAt(camera, action === 'reset-zoom' ? 1 : camera.zoom * (action === 'zoom-in' ? 1.2 : 1 / 1.2), { x: innerWidth / 2, y: innerHeight / 2 }));
-    else if (action === 'theme') { const theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'; document.documentElement.dataset.theme = theme; try { localStorage.setItem('ryadom.theme', theme); } catch {} }
+    else if (action === 'theme') { const theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'; document.documentElement.dataset.theme = theme; try { localStorage.setItem('ryadom.theme', theme); } catch {} requestMinimapRender(); }
     else if (action === 'logout') { await backend.logout(); showDialog('share'); }
     else if (action === 'server-save') {
       button.disabled = true; await queue;
@@ -1750,6 +2023,11 @@ document.addEventListener('keydown', event => {
   const key = event.key.toLowerCase();
   if (isCmdOrCtrl && key === 'z') { event.preventDefault(); undo(event.shiftKey); return; }
   if (event.ctrlKey || event.metaKey || event.altKey) return;
+  if (key === 'm' || key === 'ь' || event.code === 'KeyM') {
+    event.preventDefault();
+    setMinimapVisible(!minimapVisible);
+    return;
+  }
   if (event.code === 'Space') { event.preventDefault(); space = true; board.style.cursor = 'grab'; }
   const shortcuts = { v: 'select', h: 'hand', n: 'sticky', t: 'text', p: 'pen', r: 'shape', c: 'connector', a: 'connector' };
   if (shortcuts[key]) setTool(shortcuts[key]);
@@ -1786,7 +2064,15 @@ document.addEventListener('keydown', event => {
 board.addEventListener('focusin', event => { const id = event.target.closest('[data-id]')?.dataset.id; if (id && !editing) select(id); });
 document.addEventListener('keyup', event => { if (event.code === 'Space') { space = false; board.style.cursor = ''; } });
 window.addEventListener('blur', () => { space = false; board.style.cursor = ''; finishGesture(true); });
-window.addEventListener('resize', () => { drawPeers(); });
+window.addEventListener('resize', () => { drawPeers(); requestMinimapRender(); });
+document.addEventListener('contextmenu', event => {
+  const btn = event.target.closest('[data-action="toggle-minimap"]');
+  if (btn) {
+    event.preventDefault();
+    event.stopPropagation();
+    setMinimapVisible(!minimapVisible);
+  }
+});
 
 $('#search-input')?.addEventListener('input', event => {
   runSearch(event.target.value);
@@ -1806,6 +2092,8 @@ window.addEventListener('beforeprint', () => {
 
 hydrateIcons();
 ensureConnectorMarkers();
+setupMinimapEvents();
+setMinimapVisible(minimapVisible);
 $('#presence')?.addEventListener('click', () => showDialog('share'));
 try { document.documentElement.dataset.theme = localStorage.getItem('ryadom.theme') === 'dark' ? 'dark' : 'light'; } catch {}
 
@@ -1901,7 +2189,7 @@ async function initBoard() {
       }
     });
 
-    ready = true; fit(); setTool('select'); status(); drawPeers();
+    ready = true; fit(); setTool('select'); status(); drawPeers(); requestMinimapRender();
   } else {
     currentUserRole = 'owner';
     $('#board-title').readOnly = false;
@@ -1909,7 +2197,7 @@ async function initBoard() {
     await openBoard(); await initialize();
     for (const object of await allObjects()) { objects.set(object.id, object); renderObject(object); }
     $('#board-title').value = await readValue('meta', 'title') || 'Пространство идей';
-    ready = true; fit(); setTool('select'); status(); send({ type: 'hello' });
+    ready = true; fit(); setTool('select'); status(); send({ type: 'hello' }); requestMinimapRender();
     try {
       const raw = sessionStorage.getItem('ryadom-board-draft');
       if (raw) { const value = JSON.parse(raw); if (validObject(value) && value.text !== objects.get(value.id)?.text) { await add({ ...value, id: crypto.randomUUID(), revision: 0, x: value.x + 40 }); toast('Несохранённый черновик восстановлен отдельным объектом.'); } sessionStorage.removeItem('ryadom-board-draft'); }
