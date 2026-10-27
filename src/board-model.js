@@ -258,3 +258,90 @@ export function connectorPath(start, end, fromSide, toSide, style = 'curved') {
 
   return { path: d, d, midpoint, c1, c2 };
 }
+
+export function getMinimapWorldBounds(objects, viewport = null, padding = 120, minSpanX = 1600, minSpanY = 1000) {
+  const objBox = bounds(objects);
+  let minX = objBox.x;
+  let minY = objBox.y;
+  let maxX = objBox.x + objBox.w;
+  let maxY = objBox.y + objBox.h;
+
+  if (viewport) {
+    minX = Math.min(minX, viewport.x) - padding;
+    minY = Math.min(minY, viewport.y) - padding;
+    maxX = Math.max(maxX, viewport.x + viewport.w) + padding;
+    maxY = Math.max(maxY, viewport.y + viewport.h) + padding;
+  } else {
+    minX -= padding;
+    minY -= padding;
+    maxX += padding;
+    maxY += padding;
+  }
+
+  const w = Math.max(maxX - minX, minSpanX);
+  const h = Math.max(maxY - minY, minSpanY);
+  const cx = (minX + maxX) / 2;
+  const cy = (minY + maxY) / 2;
+
+  return {
+    minX: cx - w / 2,
+    minY: cy - h / 2,
+    maxX: cx + w / 2,
+    maxY: cy + h / 2,
+    w,
+    h
+  };
+}
+
+export function getMinimapProjection(worldBounds, mapWidth, mapHeight, pad = 8) {
+  const availW = Math.max(mapWidth - pad * 2, 10);
+  const availH = Math.max(mapHeight - pad * 2, 10);
+  const worldW = Math.max(worldBounds.w, 10);
+  const worldH = Math.max(worldBounds.h, 10);
+  const scale = Math.min(availW / worldW, availH / worldH);
+  const offsetX = pad + (availW - worldW * scale) / 2;
+  const offsetY = pad + (availH - worldH * scale) / 2;
+
+  return {
+    scale,
+    offsetX,
+    offsetY,
+    worldMinX: worldBounds.minX,
+    worldMinY: worldBounds.minY,
+    worldW,
+    worldH,
+    mapWidth,
+    mapHeight
+  };
+}
+
+export function worldToMinimap(point, proj) {
+  return {
+    x: proj.offsetX + (point.x - proj.worldMinX) * proj.scale,
+    y: proj.offsetY + (point.y - proj.worldMinY) * proj.scale
+  };
+}
+
+export function minimapToWorld(point, proj) {
+  return {
+    x: proj.worldMinX + (point.x - proj.offsetX) / proj.scale,
+    y: proj.worldMinY + (point.y - proj.offsetY) / proj.scale
+  };
+}
+
+export function getMinimapViewportRect(camera, screenWidth, screenHeight, proj) {
+  const zoom = camera?.zoom > 0 ? camera.zoom : 1;
+  const camX = camera?.x || 0;
+  const camY = camera?.y || 0;
+  const vpWorldX = -camX / zoom;
+  const vpWorldY = -camY / zoom;
+  const vpWorldW = screenWidth / zoom;
+  const vpWorldH = screenHeight / zoom;
+
+  const x = proj.offsetX + (vpWorldX - proj.worldMinX) * proj.scale;
+  const y = proj.offsetY + (vpWorldY - proj.worldMinY) * proj.scale;
+  const w = Math.max(6, vpWorldW * proj.scale);
+  const h = Math.max(6, vpWorldH * proj.scale);
+
+  return { x, y, w, h };
+}
