@@ -26,6 +26,66 @@ svg { display: block; }
 .tool.active { background: var(--primary-container); color: var(--on-primary-container); }
 .tool-divider { height: 1px; background: var(--surface-container-high); margin: 6px; }
 .view-controls { position: fixed; right: 24px; bottom: 22px; display: flex; align-items: center; padding: 5px 8px; border-radius: 28px; gap: 1px; z-index: 4; }
+.minimap {
+  position: fixed;
+  right: 24px;
+  bottom: 80px;
+  width: 220px;
+  height: 140px;
+  border-radius: 16px;
+  overflow: hidden;
+  z-index: 4;
+  user-select: none;
+  touch-action: none;
+  cursor: crosshair;
+  background: var(--surface-container-lowest);
+  border: 1px solid var(--surface-container-high);
+  box-shadow: 0 4px 20px #001d3312;
+}
+#minimap-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+#minimap-viewport {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  border: 1.5px solid var(--primary);
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+  border-radius: 3px;
+  box-sizing: border-box;
+  will-change: transform, width, height;
+}
+.minimap-close {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  padding: 0;
+  background: var(--surface-container-lowest);
+  border: 1px solid var(--outline);
+  color: var(--on-surface-variant);
+  opacity: 0;
+  transition: opacity .15s, background .15s, color .15s;
+  z-index: 2;
+}
+.minimap:hover .minimap-close,
+.minimap-close:focus-visible {
+  opacity: 1;
+}
+.minimap-close:hover {
+  background: var(--surface-container-high);
+  color: var(--on-surface);
+}
+.minimap-close svg {
+  width: 14px;
+  height: 14px;
+}
 #zoom { font-size: 12px; width: 53px; height: 40px; border-radius: 16px; font-variant-numeric: tabular-nums; }
 .board-hint { position: fixed; left: 28px; bottom: 33px; display: flex; align-items: center; gap: 9px; font-size: 11px; color: var(--on-surface-variant); pointer-events: none; }
 .board-hint svg { width: 17px; height: 17px; color: var(--primary); }
@@ -310,6 +370,7 @@ dialog form { margin: 0; }
   .tools { left: 14px; }
   .board-hint { display: none; }
   .view-controls { right: 14px; bottom: 14px; }
+  .minimap { right: 14px; bottom: 70px; width: 176px; height: 112px; }
 }
 @media (max-width: 560px) {
   .board-header { gap: 8px; padding: 8px; max-width: calc(100vw - 85px); }
@@ -325,6 +386,10 @@ dialog form { margin: 0; }
   .tools [data-tool=hand] { display: none; }
   .view-controls { right: 50%; transform: translateX(50%); padding: 3px 7px; }
   .view-controls .icon-button { width: 38px; }
+  .view-controls [data-action="toggle-minimap"] {
+    display: none !important;
+  }
+  #minimap { display: none !important; }
   .selection-tools { top: 86px; }
   #toast { bottom: 148px; }
   dialog { padding: 24px; }
@@ -354,6 +419,7 @@ dialog form { margin: 0; }
   .selection-tools,
   .board-hint,
   .view-controls,
+  #minimap,
   #cursors,
   #toast,
   #dialog,
