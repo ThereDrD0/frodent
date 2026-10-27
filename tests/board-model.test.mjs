@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { makeObject, validObject, initialObjects, worldPoint, zoomAt, fitCamera, normalizeStroke, snapshot, parseSnapshot, GRID_SIZE, snapToGrid, snapPoint, SHAPE_KINDS, SIDES, CONNECTOR_STYLES, connectorAnchor, connectorEndpoints, connectorPath, closestSide, matchSearch } from '../src/board-model.js';
+import { makeObject, validObject, initialObjects, worldPoint, zoomAt, fitCamera, normalizeStroke, snapshot, parseSnapshot, GRID_SIZE, snapToGrid, snapPoint, SHAPE_KINDS, SIDES, CONNECTOR_STYLES, connectorAnchor, connectorEndpoints, connectorPath, closestSide, matchSearch, getMinimapWorldBounds, getMinimapProjection, worldToMinimap, minimapToWorld, getMinimapViewportRect } from '../src/board-model.js';
+import { icon } from '../src/icons.js';
 import { fileKind, MAX_FILE, renderBoardSvg, escapeXml } from '../src/board-files.js';
 
 test('Seed and newly created objects pass schema validation', () => {
@@ -318,4 +319,91 @@ test('Full-text search matching across sticks, shapes, connectors, texts, files 
 
   // Несовпадающий запрос
   assert.equal(matchSearch(sticky, 'несуществующий текст'), false);
+});
+
+test('Minimap world bounds, projection and coordinate conversions', () => {
+  // Проверка иконки
+  const mapSvg = icon('map');
+  assert.ok(mapSvg.includes('<svg'));
+  assert.ok(mapSvg.includes('d="m3 6 6-3 6 3 6-3v15l-6 3-6-3-6 3zm6-3v15m6-12v15"'));
+
+  // Проверка getMinimapWorldBounds без viewport
+  const objs = [
+    { x: 100, y: 100, w: 200, h: 100 }
+  ];
+  // bounds: x: 100, y: 100, w: 200, h: 100 -> minX=100-120=-20, minY=100-120=-20, maxX=300+120=420, maxY=200+120=320
+  // spanX: 440 < minSpanX(1600) => w = 1600; spanY: 340 < minSpanY(1000) => h = 1000
+  // cx = (-20 + 420) / 2 = 200; cy = (-20 + 320) / 2 = 150
+  const b1 = getMinimapWorldBounds(objs);
+  assert.equal(b1.w, 1600);
+  assert.equal(b1.h, 1000);
+  assert.equal(b1.minX, 200 - 800); // -600
+  assert.equal(b1.maxX, 200 + 800); // 1000
+  assert.equal(b1.minY, 150 - 500); // -350
+  assert.equal(b1.maxY, 150 + 500); // 650
+
+  // Проверка с viewport
+  const vp = { x: -500, y: -400, w: 2000, h: 1200 };
+  const b2 = getMinimapWorldBounds(objs, vp, 50, 1000, 800);
+  // minX = Math.min(100, -500) - 50 = -550
+  // minY = Math.min(100, -400) - 50 = -450
+  // maxX = Math.max(300, 1500) + 50 = 1550
+  // maxY = Math.max(200, 800) + 50 = 850
+  // w = Math.max(2100, 1000) = 2100; h = Math.max(1300, 800) = 1300
+  // cx = (-550 + 1550) / 2 = 500; cy = (-450 + 850) / 2 = 200
+  assert.equal(b2.w, 2100);
+  assert.equal(b2.h, 1300);
+  assert.equal(b2.minX, 500 - 1050);
+  assert.equal(b2.maxX, 500 + 1050);
+
+  // Проверка getMinimapProjection
+  const proj = getMinimapProjection(b1, 200, 150, 10);
+  // availW = 180, availH = 130, worldW = 1600, worldH = 1000
+  // scale = Math.min(180/1600, 130/1000) = Math.min(0.1125, 0.13) = 0.1125
+  assert.equal(proj.scale, 180 / 1600);
+  assert.equal(proj.worldMinX, b1.minX);
+  assert.equal(proj.worldMinY, b1.minY);
+
+  // Проверка worldToMinimap и minimapToWorld
+  const worldPt = { x: 120, y: 250 };
+  const miniPt = worldToMinimap(worldPt, proj);
+  const revertedWorldPt = minimapToWorld(miniPt, proj);
+  assert.ok(Math.abs(revertedWorldPt.x - worldPt.x) < 1e-9);
+  assert.ok(Math.abs(revertedWorldPt.y - worldPt.y) < 1e-9);
+
+  // Проверка getMinimapViewportRect
+  const camera = { x: -200, y: -100, zoom: 1 };
+  const vpRect = getMinimapViewportRect(camera, 800, 600, proj);
+  assert.ok(vpRect.w >= 6);
+  assert.ok(vpRect.h >= 6);
+  assert.equal(vpRect.w, 800 * proj.scale);
+  assert.equal(vpRect.h, 600 * proj.scale);
+
+  // Проверка минимального размера рамки viewport при большом зуме
+  const tinyVpRect = getMinimapViewportRect({ x: 0, y: 0, zoom: 100 }, 10, 10, proj);
+  assert.equal(tinyVpRect.w, 6);
+  assert.equal(tinyVpRect.h, 6);
+
+  // Проверка пустой доски
+  const emptyBounds = getMinimapWorldBounds([]);
+  assert.ok(emptyBounds.w >= 1600);
+  assert.ok(emptyBounds.h >= 1000);
+  const emptyProj = getMinimapProjection(emptyBounds, 220, 140);
+  assert.ok(emptyProj.scale > 0);
+
+  // Фолбэк зума для миникарты (zoom <= 0, zoom undefined, camera null)
+  const fallbackVp1 = getMinimapViewportRect(null, 800, 600, emptyProj);
+  assert.ok(fallbackVp1.w >= 6);
+  assert.ok(fallbackVp1.h >= 6);
+  assert.equal(fallbackVp1.w, 800 * emptyProj.scale);
+
+  const fallbackVp2 = getMinimapViewportRect({ x: 0, y: 0, zoom: 0 }, 800, 600, emptyProj);
+  assert.ok(fallbackVp2.w >= 6);
+  assert.ok(fallbackVp2.h >= 6);
+  assert.equal(fallbackVp2.w, 800 * emptyProj.scale);
+
+  const fallbackVp3 = getMinimapViewportRect({ x: 0, y: 0, zoom: -5 }, 800, 600, emptyProj);
+  assert.ok(fallbackVp3.w >= 6);
+  assert.ok(fallbackVp3.h >= 6);
+  assert.equal(fallbackVp3.w, 800 * emptyProj.scale);
 });
