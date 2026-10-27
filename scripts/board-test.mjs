@@ -93,6 +93,11 @@ try {
   const zoomBefore = await page.locator('#zoom').textContent();
   await page.locator('[data-action="zoom-in"]').click(); assert.notEqual(await page.locator('#zoom').textContent(), zoomBefore);
   await page.locator('[data-action="fit"]').click();
+  assert.ok(await page.locator('#minimap').isVisible());
+  await page.locator('#minimap').click({ button: 'right' });
+  assert.ok(await page.locator('#minimap').isHidden());
+  await page.keyboard.press('m');
+  assert.ok(await page.locator('#minimap').isVisible());
   await page.evaluate(() => { const original = URL.createObjectURL.bind(URL); URL.createObjectURL = blob => { if (blob.type === 'application/json') window.exportedBoard = blob.text(); return original(blob); }; });
   await page.locator('[data-action="menu"]').click(); await page.locator('[data-action="export"]').click();
   await page.waitForFunction(() => !!window.exportedBoard);
@@ -103,6 +108,8 @@ try {
   await page.waitForFunction(count => document.querySelectorAll('#objects .object').length === count, beforeImport * 2); await saved(page);
   assert.equal(await page.locator('img[alt="drawing.png"]').count(), 2);
   await page.route('**/api/v1/users/login', route => route.fulfill({ json: { status: 'Success', data: { access_token: 'fixture-access-token' } } }));
+  await page.route('**/api/v1/users/me', route => route.fulfill({ json: { status: 'Success', data: { id: 'user-fixture', email: 'fixture@example.test', displayName: 'Fixture User' } } }));
+  await page.route('**/api/v1/boards', route => { if (route.request().method() === 'GET') return route.fulfill({ json: { status: 'Success', data: { items: [], total: 0 } } }); route.fallback(); });
   const serverBoardId = 'b53c8fca-83bc-4db0-a8d3-757a536852cb';
   const serverAttachmentId = 'c53c8fca-83bc-4db0-a8d3-757a536852cb';
   const remotePng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a6N8AAAAASUVORK5CYII=', 'base64');
