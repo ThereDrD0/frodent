@@ -74,6 +74,11 @@
     <button class="icon-button" data-action="delete" title="Удалить · Delete" aria-label="Удалить объект"><span data-icon="trash"></span></button>
   </div>
   <div class="board-hint"><span data-icon="spark"></span><span id="tool-hint">Место, где мысли встречаются</span></div>
+  <div id="minimap" class="surface minimap" aria-label="Миникарта" role="region">
+    <canvas id="minimap-canvas" width="220" height="140"></canvas>
+    <div id="minimap-viewport" aria-hidden="true"></div>
+    <button id="minimap-close" class="minimap-close" title="Скрыть миникарту (ПКМ)" aria-label="Скрыть миникарту"><span data-icon="close"></span></button>
+  </div>
   <div class="view-controls surface">
     <button class="icon-button" data-action="undo" aria-label="Отменить" title="Отменить · Ctrl+Z" disabled><span data-icon="undo"></span></button>
     <button class="icon-button" data-action="redo" aria-label="Повторить" title="Повторить · Ctrl+Shift+Z" disabled><span data-icon="redo"></span></button>
@@ -82,6 +87,7 @@
     <button id="zoom" data-action="reset-zoom" title="Масштаб 100%" aria-label="Масштаб 100%">100%</button>
     <button class="icon-button" data-action="zoom-in" aria-label="Увеличить масштаб" title="Увеличить"><span data-icon="plus"></span></button>
     <button class="icon-button" data-action="fit" aria-label="Показать всю доску" title="Показать всё · 1"><span data-icon="fit"></span></button>
+    <button class="icon-button" data-action="toggle-minimap" aria-label="Миникарта" title="Миникарта · M (ПКМ скрыть)" aria-pressed="true"><span data-icon="map"></span></button>
   </div>
   <div id="drop-overlay" hidden><div><span data-icon="upload"></span><h2>Положите это на доску</h2><p>Картинки и документы · до 20 МБ на файл</p></div></div>
   <input id="file-input" type="file" multiple accept="image/png,image/jpeg,image/webp,image/gif,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.md,.csv,.odt,.ods,.odp,.rtf" hidden>
